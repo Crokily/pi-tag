@@ -9,6 +9,8 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@mariozechner/pi-ai": "^0.63.1",
+    "@mariozechner/pi-coding-agent": "^0.63.1",
     "better-sqlite3": "^11.8.1",
     "discord.js": "^14.18.0",
     "dotenv": "^16.5.0",

@@ -103,6 +103,8 @@ function cliRegister(args: string[]): void {
       folder,
       requiresTrigger,
       isMain,
+      modelOverride: '',
+      thinkingOverride: '',
     };
 
     registerChannel(ch);
@@ -148,7 +150,11 @@ function cliListChannels(): void {
         ch.isMain ? 'main' : '',
         ch.requiresTrigger ? 'trigger' : 'all-messages',
       ].filter(Boolean).join(', ');
-      console.log(`  ${ch.jid}  ${ch.name}  [${flags}]  folder=${ch.folder}`);
+      const overrides = [
+        ch.modelOverride ? `model=${ch.modelOverride}` : '',
+        ch.thinkingOverride ? `thinking=${ch.thinkingOverride}` : '',
+      ].filter(Boolean).join(' ');
+      console.log(`  ${ch.jid}  ${ch.name}  [${flags}]  folder=${ch.folder}${overrides ? ` ${overrides}` : ''}`);
     }
   }
   closeDb();

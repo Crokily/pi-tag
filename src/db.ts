@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { config } from './config.js';
 import { logger } from './logger.js';
-import type { RegisteredChannel, QueuedMessage } from './types.js';
+import { type RegisteredChannel, type QueuedMessage, type ThinkingLevel } from './types.js';
 
 let db: Database.Database;
 
@@ -15,12 +15,14 @@ export function initDb(): void {
 
   db.exec(`
     create table if not exists channels (
-      jid           text primary key,
-      name          text not null,
-      folder        text not null unique,
+      jid              text primary key,
+      name             text not null,
+      folder           text not null unique,
       requires_trigger integer not null default 1,
-      is_main       integer not null default 0,
-      created_at    text not null default (datetime('now'))
+      is_main          integer not null default 0,
+      model_override   text not null default '',
+      thinking_override text not null default '',
+      created_at       text not null default (datetime('now'))
     );
 
     create table if not exists message_queue (
@@ -46,16 +48,39 @@ export function initDb(): void {
     );
   `);
 
+  ensureTableColumn('channels', 'model_override', "text not null default ''");
+  ensureTableColumn('channels', 'thinking_override', "text not null default ''");
+
   logger.info({ path: config.dbPath }, 'Database initialized');
+}
+
+function ensureTableColumn(table: string, column: string, ddl: string): void {
+  const rows = db.prepare(`pragma table_info(${table})`).all() as Array<{ name: string }>;
+  if (rows.some((row) => row.name === column)) return;
+  db.exec(`alter table ${table} add column ${column} ${ddl}`);
+  logger.info({ table, column }, 'Database migrated: added column');
 }
 
 // ── Channel registration ──
 
 export function registerChannel(ch: RegisteredChannel): void {
   db.prepare(`
-    insert or replace into channels (jid, name, folder, requires_trigger, is_main)
-    values (?, ?, ?, ?, ?)
-  `).run(ch.jid, ch.name, ch.folder, ch.requiresTrigger ? 1 : 0, ch.isMain ? 1 : 0);
+    insert into channels (jid, name, folder, requires_trigger, is_main, model_override, thinking_override)
+    values (?, ?, ?, ?, ?, ?, ?)
+    on conflict(jid) do update set
+      name = excluded.name,
+      folder = excluded.folder,
+      requires_trigger = excluded.requires_trigger,
+      is_main = excluded.is_main
+  `).run(
+    ch.jid,
+    ch.name,
+    ch.folder,
+    ch.requiresTrigger ? 1 : 0,
+    ch.isMain ? 1 : 0,
+    ch.modelOverride || '',
+    ch.thinkingOverride || '',
+  );
   logger.info({ jid: ch.jid, name: ch.name }, 'Channel registered');
 }
 
@@ -74,6 +99,26 @@ export function getAllChannels(): RegisteredChannel[] {
   return rows.map(rowToChannel);
 }
 
+export function setChannelModelOverride(jid: string, modelOverride: string): boolean {
+  const result = db.prepare('update channels set model_override = ? where jid = ?').run(modelOverride.trim(), jid);
+  return result.changes > 0;
+}
+
+export function clearChannelModelOverride(jid: string): boolean {
+  const result = db.prepare("update channels set model_override = '' where jid = ?").run(jid);
+  return result.changes > 0;
+}
+
+export function setChannelThinkingOverride(jid: string, thinkingOverride: ThinkingLevel): boolean {
+  const result = db.prepare('update channels set thinking_override = ? where jid = ?').run(thinkingOverride, jid);
+  return result.changes > 0;
+}
+
+export function clearChannelThinkingOverride(jid: string): boolean {
+  const result = db.prepare("update channels set thinking_override = '' where jid = ?").run(jid);
+  return result.changes > 0;
+}
+
 function rowToChannel(row: any): RegisteredChannel {
   return {
     jid: row.jid,
@@ -81,6 +126,8 @@ function rowToChannel(row: any): RegisteredChannel {
     folder: row.folder,
     requiresTrigger: row.requires_trigger === 1,
     isMain: row.is_main === 1,
+    modelOverride: row.model_override || '',
+    thinkingOverride: (row.thinking_override || '') as ThinkingLevel | '',
   };
 }
 

@@ -11,6 +11,7 @@ import {
   Events,
   GatewayIntentBits,
   Partials,
+  type Interaction,
   type Message,
   type TextChannel,
   type DMChannel,
@@ -23,6 +24,7 @@ import {
   enqueueMessage,
 } from './db.js';
 import type { RegisteredChannel } from './types.js';
+import { handleAutocomplete, handleChatCommand, registerGlobalCommands } from './slash-commands.js';
 
 let client: Client | null = null;
 let triggerPattern: RegExp;
@@ -41,14 +43,22 @@ export async function startDiscord(): Promise<void> {
   });
 
   client.on(Events.MessageCreate, handleMessage);
+  client.on(Events.InteractionCreate, handleInteraction);
   client.on(Events.Error, (err) => logger.error({ err: err.message }, 'Discord client error'));
 
   return new Promise<void>((resolve, reject) => {
-    const onReady = (ready: Client<true>) => {
+    const onReady = async (ready: Client<true>) => {
       cleanup();
       botId = ready.user.id;
       triggerPattern = new RegExp(`^@${escapeRegExp(config.triggerName)}\\b`, 'i');
       logger.info({ tag: ready.user.tag, id: botId }, 'Discord bot connected');
+
+      try {
+        await registerGlobalCommands(ready);
+      } catch (err: any) {
+        logger.error({ err: err.message }, 'Failed to register global slash commands');
+      }
+
       resolve();
     };
 
@@ -66,6 +76,21 @@ export async function startDiscord(): Promise<void> {
     client!.once(Events.Error, onStartupError);
     client!.login(config.discordToken).catch(onStartupError);
   });
+}
+
+async function handleInteraction(interaction: Interaction): Promise<void> {
+  try {
+    if (interaction.isAutocomplete()) {
+      await handleAutocomplete(interaction);
+      return;
+    }
+
+    if (interaction.isChatInputCommand()) {
+      await handleChatCommand(interaction);
+    }
+  } catch (err: any) {
+    logger.error({ err: err.message, id: interaction.id }, 'Interaction handler failed');
+  }
 }
 
 async function handleMessage(message: Message): Promise<void> {
@@ -131,6 +156,8 @@ async function handleMessage(message: Message): Promise<void> {
       folder: `dm_${sender}`,
       requiresTrigger: false,
       isMain: false,
+      modelOverride: '',
+      thinkingOverride: '',
     };
     dbRegisterChannel(reg);
     channel = reg;

@@ -1,3 +1,7 @@
+/** Supported pi thinking levels */
+export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+export type ThinkingLevel = typeof THINKING_LEVELS[number];
+
 /** Inbound message from Discord, ready for queue */
 export interface InboundMessage {
   id: string;
@@ -15,6 +19,8 @@ export interface RegisteredChannel {
   folder: string;
   requiresTrigger: boolean;
   isMain: boolean;
+  modelOverride: string;
+  thinkingOverride: ThinkingLevel | '';
 }
 
 /** Queued message row from SQLite */

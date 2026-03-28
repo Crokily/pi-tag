@@ -19,6 +19,7 @@ import {
 } from './db.js';
 import { invokeAgent } from './agent.js';
 import { sendResponse, setTyping } from './discord.js';
+import { computeEffectiveChannelSettings } from './channel-settings.js';
 
 /** Channels currently being processed (per-channel serial lock) */
 const activeChannels = new Set<string>();
@@ -117,7 +118,12 @@ async function processMessage(
 
     logMessage(jid, 'user', content);
 
-    const result = await invokeAgent(channel.folder, prompt);
+    const effective = computeEffectiveChannelSettings(channel);
+
+    const result = await invokeAgent(channel.folder, prompt, {
+      model: effective.rawModelRef || undefined,
+      thinking: effective.hasManagedThinking ? effective.effectiveThinking : undefined,
+    });
 
     await stopTypingLoop();
 

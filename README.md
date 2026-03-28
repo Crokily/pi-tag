@@ -22,6 +22,9 @@ Discord ──discord.js──→ Gateway ──pi subprocess──→ Pi Agent
 - **Message splitting** — handles Discord's 2000-character limit
 - **Attachments & replies** — attachment placeholders and reply context forwarded to pi
 - **CLI channel management** — register/unregister channels from the command line
+- **Global slash commands** — `/pi status`, `/pi model`, `/pi reset-model`, `/pi thinking`
+- **Model autocomplete** — slash command model picker is populated from pi's currently available models
+- **Thinking fallback** — `xhigh` automatically falls back to `high` on models that don't support it
 
 ## Quick Start
 
@@ -82,6 +85,29 @@ node dist/index.js
 npm run dev   # run with tsx (no build needed)
 ```
 
+## Slash Commands
+
+The gateway registers a global `/pi` command on startup.
+
+### `/pi status`
+Show the effective model/thinking settings for the current channel.
+
+### `/pi model`
+Set the current channel's default model.
+- Uses Discord autocomplete
+- Source of truth is pi's own available model registry (`ModelRegistry.getAvailable()`)
+
+### `/pi reset-model`
+Clear the current channel's model override and fall back to the gateway default (`PI_MODEL`).
+
+### `/pi thinking`
+Set the current channel's thinking level.
+- Choices: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`
+- If the selected model does not support `xhigh`, the gateway stores `high` instead
+- If the selected model does not support reasoning at all, the gateway stores `off`
+
+> Global Discord slash commands can take a little time to propagate after the bot starts or after updates.
+
 ## CLI Reference
 
 ```bash
@@ -129,6 +155,9 @@ journalctl --user -u pi-discord-gateway -f
 - **`src/queue.ts`** — Polling loop: claims messages, enforces concurrency, dispatches to agent
 - **`src/agent.ts`** — Spawns `pi --session-dir <dir> --continue -p <message>` subprocesses
 - **`src/config.ts`** — Environment-based configuration
+- **`src/model-catalog.ts`** — pi model discovery (`AuthStorage` + `ModelRegistry`) and thinking capability checks
+- **`src/channel-settings.ts`** — effective model/thinking resolution per channel
+- **`src/slash-commands.ts`** — global Discord slash commands and autocomplete handlers
 - **`src/index.ts`** — Entry point: CLI commands + gateway startup
 
 Each channel gets its own pi session directory (`sessions/<folder>/`), so conversation history is fully isolated and persistent.
