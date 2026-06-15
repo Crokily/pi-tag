@@ -212,7 +212,7 @@ Most users won't need to edit this file directly — `piscord setup` generates i
 | `ARCHIVE_RETENTION_DAYS`     | `30`                            | Days to keep archived sessions (0 = never clean)                           |
 | `MAX_ATTACHMENT_BYTES`       | `26214400`                      | Max size per attachment (0 = no limit)                                     |
 | `MAX_TOTAL_ATTACHMENT_BYTES` | `52428800`                      | Max combined attachment size (0 = no limit)                                |
-| `MEDIA_RETENTION_HOURS`      | `168`                           | Hours to keep downloaded attachment files for path-based agent access       |
+| `MEDIA_RETENTION_HOURS`      | `168`                           | Hours to keep downloaded attachment files for path-based agent access      |
 | `SESSIONS_DIR`               | _(platform default)_/sessions   | Session storage directory (see Data Locations)                             |
 | `DB_PATH`                    | _(platform default)_/gateway.db | SQLite database path (see Data Locations)                                  |
 | `LOG_LEVEL`                  | `info`                          | Log level: debug/info/warn/error                                           |
@@ -341,20 +341,20 @@ MIT
 
 ## Version History
 
-| Version | Date       | Changes                                                    |
-| ------- | ---------- | ---------------------------------------------------------- |
+| Version | Date       | Changes                                                     |
+| ------- | ---------- | ----------------------------------------------------------- |
 | 1.6.0   | 2026-06-15 | Path-based attachment relay and clearer empty-output errors |
-| 1.5.3   | 2026-05-19 | Fix ESM peer-dep check, cross-platform test fixes          |
-| 1.5.1   | 2026-05-15 | Startup check for legacy `@mariozechner/pi-ai` package     |
-| 1.5.0   | 2026-05-15 | Cross-platform support (macOS, Windows), launchd, new deps |
-| 1.4.3   | 2026-05-03 | Compatibility with older pi-ai thinking APIs               |
-| 1.4.2   | 2026-04-06 | Fixed default XDG data directory mismatch                  |
-| 1.4.1   | 2026-04-06 | Fixed text-only sends via piscord send                     |
-| 1.4.0   | 2026-04-06 | Added per-channel working directories                      |
-| 1.3.0   | 2026-04-04 | Improved setup UX, faster install                          |
-| 1.2.0   | 2026-04-04 | Added channel policy, abort, scheduler, send-file          |
-| 1.1.0   | 2026-03-31 | Renamed package to piscord                                 |
-| 1.0.0   | 2026-03-28 | Initial release                                            |
+| 1.5.3   | 2026-05-19 | Fix ESM peer-dep check, cross-platform test fixes           |
+| 1.5.1   | 2026-05-15 | Startup check for legacy `@mariozechner/pi-ai` package      |
+| 1.5.0   | 2026-05-15 | Cross-platform support (macOS, Windows), launchd, new deps  |
+| 1.4.3   | 2026-05-03 | Compatibility with older pi-ai thinking APIs                |
+| 1.4.2   | 2026-04-06 | Fixed default XDG data directory mismatch                   |
+| 1.4.1   | 2026-04-06 | Fixed text-only sends via piscord send                      |
+| 1.4.0   | 2026-04-06 | Added per-channel working directories                       |
+| 1.3.0   | 2026-04-04 | Improved setup UX, faster install                           |
+| 1.2.0   | 2026-04-04 | Added channel policy, abort, scheduler, send-file           |
+| 1.1.0   | 2026-03-31 | Renamed package to piscord                                  |
+| 1.0.0   | 2026-03-28 | Initial release                                             |
 
 See [Changelog](./CHANGELOG.md) for full details.
 
