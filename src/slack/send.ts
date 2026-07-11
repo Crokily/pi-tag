@@ -2,6 +2,7 @@ import { statSync } from 'node:fs';
 import { WebClient } from '@slack/web-api';
 import { config } from '../config.js';
 import { uploadFilesExternal } from './files.js';
+import { splitMessage, SLACK_MAX_MESSAGE_LENGTH } from './text.js';
 
 export interface SendRequest {
   channelJid: string;
@@ -60,13 +61,26 @@ export async function sendFilesToSlack(request: SendRequest): Promise<{ sentFile
 
   if (request.files.length === 0) {
     // Text-only; validateSendRequest guarantees text is present here.
-    await client.chat.postMessage({ channel: channelId, markdown_text: text ?? '' });
+    // Split like the gateway does — markdown_text rejects long payloads.
+    for (const chunk of splitMessage(text ?? '', SLACK_MAX_MESSAGE_LENGTH)) {
+      await client.chat.postMessage({ channel: channelId, markdown_text: chunk });
+    }
     return { sentFiles: 0 };
+  }
+
+  // A too-long comment would fail the whole upload: post the text as its own
+  // (split) message first, then attach the files without a comment.
+  let initialComment = text || undefined;
+  if (initialComment && initialComment.length > SLACK_MAX_MESSAGE_LENGTH) {
+    for (const chunk of splitMessage(initialComment, SLACK_MAX_MESSAGE_LENGTH)) {
+      await client.chat.postMessage({ channel: channelId, markdown_text: chunk });
+    }
+    initialComment = undefined;
   }
 
   return uploadFilesExternal(
     client,
     request.files.map((filePath) => ({ filePath })),
-    { channelId, initialComment: text || undefined },
+    { channelId, initialComment },
   );
 }

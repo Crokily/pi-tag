@@ -389,7 +389,7 @@ Read this section before exposing the bot to anyone but yourself.
 - Review attachment size limits before exposing the bot.
 - Run the service as a normal user, not root.
 
-Scope note: the bundled manifest requests the minimal scope set the gateway uses (message events for channels/groups/DMs, `chat:write`, files read/write, `reactions:write`, `users:read`, `commands`). The gateway never pulls channel history — it only sees the events Slack pushes to it.
+Scope note: the bundled manifest requests the minimal scope set the gateway uses (message events for channels/groups/DMs, `chat:write`, files read/write, `reactions:write`, `users:read`, `channels:read`/`groups:read` for readable auto-registration labels, `commands`). The gateway never pulls channel history — it only sees the events Slack pushes to it.
 
 To report a vulnerability, see [SECURITY.md](./SECURITY.md).
 

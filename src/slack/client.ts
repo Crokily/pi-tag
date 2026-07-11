@@ -22,6 +22,7 @@ import {
   selectAttachmentsWithinLimits,
 } from '../platform/attachments.js';
 import { registerCommands } from './commands.js';
+import { normalizeSlackText, splitMessage, SLACK_MAX_MESSAGE_LENGTH } from './text.js';
 
 /** Inbound message event shape as delivered by Bolt's message listener. */
 type InboundMessageEvent = SlackEventMiddlewareArgs<'message'>['message'];
@@ -33,7 +34,8 @@ let botTag: string | undefined;
 let teamName: string | undefined;
 
 /** userId → display name, populated lazily via users.info */
-const userNameCache = new Map<string, string>();
+const USER_NAME_TTL_MS = 10 * 60 * 1000;
+const userNameCache = new Map<string, { name: string; expiresAt: number }>();
 
 export async function startSlack(): Promise<void> {
   const boltApp = new App({
@@ -79,11 +81,18 @@ export async function startSlack(): Promise<void> {
 
 async function handleMessage(event: InboundMessageEvent): Promise<void> {
   // Loop prevention: ignore anything authored by a bot (including ourselves
-  // and cross-bot loops), and only process plain user messages / file shares.
-  // Edits, deletions, joins, etc. arrive as other subtypes and are dropped.
+  // and cross-bot loops), and only process plain user messages, file shares
+  // and thread replies broadcast to the channel. Edits, deletions, joins,
+  // etc. arrive as other subtypes and are dropped.
   if ('bot_id' in event && event.bot_id) return;
   if (event.subtype === 'bot_message') return;
-  if (event.subtype !== undefined && event.subtype !== 'file_share') return;
+  if (
+    event.subtype !== undefined &&
+    event.subtype !== 'file_share' &&
+    event.subtype !== 'thread_broadcast'
+  ) {
+    return;
+  }
   if (!event.user || event.user === botUserId) return;
 
   const isDM = event.channel_type === 'im';
@@ -96,14 +105,21 @@ async function handleMessage(event: InboundMessageEvent): Promise<void> {
   }
 
   // ── Build content ──
-  let content = event.text ?? '';
+  // Undo Slack's HTML-entity escaping and link syntax so pi sees what the
+  // human typed. Bot-mention handling below runs on the normalized text
+  // (mentions are left intact by normalizeSlackText).
+  let content = normalizeSlackText(event.text ?? '');
   const sender = event.user;
   const senderName = await resolveUserName(sender);
   const timestamp = slackTsToIso(event.ts);
 
-  // Translate <@bot> mentions → trigger format
-  if (botUserId && content.includes(`<@${botUserId}`)) {
-    content = content.replace(new RegExp(`<@${botUserId}(\\|[^>]*)?>`, 'g'), '').trim();
+  // Translate <@bot> mentions → trigger format. The pattern is terminated
+  // (`>` required) so another user id sharing our id as a prefix never
+  // false-triggers.
+  const botMention = botUserId ? new RegExp(`<@${botUserId}(\\|[^>]*)?>`, 'g') : null;
+  if (botMention?.test(content)) {
+    botMention.lastIndex = 0;
+    content = content.replace(botMention, '').trim();
     if (!triggerPattern.test(content)) {
       content = `@${config.triggerName} ${content}`;
     }
@@ -113,7 +129,8 @@ async function handleMessage(event: InboundMessageEvent): Promise<void> {
   // requires a Bearer header; session/media.ts injects it for slack.com hosts)
   let acceptedAttachments: AttachmentMeta[] = [];
   let attachmentsJson: string | null = null;
-  const files = event.files ?? [];
+  // thread_broadcast events carry no files field in the SDK types.
+  const files = 'files' in event ? (event.files ?? []) : [];
   if (files.length > 0) {
     const metas: AttachmentMeta[] = files.flatMap((file) =>
       file.url_private
@@ -224,7 +241,6 @@ async function handleMessage(event: InboundMessageEvent): Promise<void> {
 
 // ── Outbound ──
 
-const SLACK_MAX_LENGTH = 4000;
 const SEND_INTERVAL_MS = 1000;
 
 /** channelId → next allowed outbound send time (epoch ms) */
@@ -244,7 +260,10 @@ export async function sendResponse(
   const threadTs = config.replyInThread ? ctx?.threadTs : undefined;
 
   try {
-    const chunks = text.length <= SLACK_MAX_LENGTH ? [text] : splitMessage(text, SLACK_MAX_LENGTH);
+    const chunks =
+      text.length <= SLACK_MAX_MESSAGE_LENGTH
+        ? [text]
+        : splitMessage(text, SLACK_MAX_MESSAGE_LENGTH);
     for (const chunk of chunks) {
       await paceOutbound(channelId);
       // markdown_text takes standard Markdown, so no mrkdwn conversion needed.
@@ -311,16 +330,17 @@ export function getBotTag(): string | undefined {
 
 // ── Helpers ──
 
-/** Resolve a user's display name via users.info, cached per user id. */
+/** Resolve a user's display name via users.info, cached with a short TTL so
+ * display-name changes propagate into the prompt prefix. */
 async function resolveUserName(userId: string): Promise<string> {
   const cached = userNameCache.get(userId);
-  if (cached) return cached;
-  if (!app) return userId;
+  if (cached && cached.expiresAt > Date.now()) return cached.name;
+  if (!app) return cached?.name ?? userId;
 
   try {
     const res = await app.client.users.info({ user: userId });
     const name = res.user?.profile?.display_name || res.user?.real_name || res.user?.name || userId;
-    userNameCache.set(userId, name);
+    userNameCache.set(userId, { name, expiresAt: Date.now() + USER_NAME_TTL_MS });
     return name;
   } catch (err: any) {
     // Missing users:read scope: fall back to the raw user id.
@@ -359,21 +379,6 @@ async function paceOutbound(channelId: string): Promise<void> {
 function slackTsToIso(ts: string): string {
   const ms = Number.parseFloat(ts) * 1000;
   return Number.isFinite(ms) ? new Date(ms).toISOString() : new Date().toISOString();
-}
-
-function splitMessage(text: string, max: number): string[] {
-  const chunks: string[] = [];
-  let remaining = text;
-
-  while (remaining.length > max) {
-    // Try to split at last newline within limit
-    let splitAt = remaining.lastIndexOf('\n', max);
-    if (splitAt <= 0) splitAt = max; // hard split if no newline
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt).replace(/^\n/, '');
-  }
-  if (remaining) chunks.push(remaining);
-  return chunks;
 }
 
 function escapeRegExp(text: string): string {
