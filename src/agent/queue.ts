@@ -116,20 +116,34 @@ function dispatch(): void {
     activeTaskControllers.set(msg.rowid, controller);
     activeChannelControllers.set(jid, controller);
 
-    const taskPromise = processMessage(jid, msg, controller.signal).finally(() => {
-      activeChannels.delete(jid);
-      activeTaskControllers.delete(msg.rowid);
-      activeChannelControllers.delete(jid);
-      activeTaskPromises.delete(taskPromise);
+    // The promise is stored, not awaited, so it must never be left without a
+    // rejection handler: an unhandled rejection would crash the whole gateway.
+    const taskPromise = processMessage(jid, msg, controller.signal)
+      .catch((err: any) => {
+        logger.error({ jid, rowid: msg.rowid, err: err?.message }, 'processMessage rejected');
+      })
+      .finally(() => {
+        activeChannels.delete(jid);
+        activeTaskControllers.delete(msg.rowid);
+        activeChannelControllers.delete(jid);
+        activeTaskPromises.delete(taskPromise);
 
-      if (running) {
-        schedulePoll(0);
-      }
-    });
+        if (running) {
+          schedulePoll(0);
+        }
+      });
 
     activeTaskPromises.add(taskPromise);
   }
 }
+
+/**
+ * How long the drain waits for aborted tasks to settle. Must comfortably
+ * exceed invokeAgent's SIGTERM→SIGKILL escalation (5s, see invoke.ts) plus
+ * process-reaping margin, so a pi process that ignores SIGTERM is killed and
+ * its task settles BEFORE shutdown proceeds to stopSlack()/closeDb().
+ */
+const POST_ABORT_DRAIN_MS = 8_000;
 
 async function drainActiveTasks(timeoutMs: number): Promise<void> {
   if (activeTaskPromises.size === 0) {
@@ -154,7 +168,7 @@ async function drainActiveTasks(timeoutMs: number): Promise<void> {
   if (activeTaskPromises.size > 0) {
     await Promise.race([
       Promise.allSettled([...activeTaskPromises]),
-      new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+      new Promise<void>((resolve) => setTimeout(resolve, POST_ABORT_DRAIN_MS)),
     ]);
   }
 }
@@ -216,7 +230,7 @@ async function processMessage(jid: string, msg: QueuedMessage, signal: AbortSign
     });
 
     if (signal.aborted) {
-      markMessageFailed(rowid);
+      safeMarkMessageFailed(jid, rowid);
       logger.info({ jid, rowid }, 'Message abandoned: shutdown interrupted processing');
       return;
     }
@@ -241,13 +255,13 @@ async function processMessage(jid: string, msg: QueuedMessage, signal: AbortSign
     logger.warn({ jid, error: result.error }, 'Agent returned error');
   } catch (err: any) {
     if (signal.aborted) {
-      markMessageFailed(rowid);
+      safeMarkMessageFailed(jid, rowid);
       logger.info({ jid, rowid }, 'Message abandoned: shutdown interrupted processing');
       return;
     }
 
     logger.error({ jid, err: err.message }, 'processMessage failed');
-    markMessageFailed(rowid);
+    safeMarkMessageFailed(jid, rowid);
     try {
       await sendResponse(jid, `⚠️ Internal error: ${err.message?.slice(0, 200)}`, replyCtx);
     } catch {
@@ -255,5 +269,18 @@ async function processMessage(jid: string, msg: QueuedMessage, signal: AbortSign
     }
   } finally {
     await setBusy(jid, false, busyCtx);
+  }
+}
+
+/**
+ * Mark a message failed, tolerating a database that shutdown already closed
+ * (a task aborted mid-shutdown can outlive closeDb). The row then stays in
+ * 'processing' and recoverStuckMessages resets it to pending on next start.
+ */
+function safeMarkMessageFailed(jid: string, rowid: number): void {
+  try {
+    markMessageFailed(rowid);
+  } catch (err: any) {
+    logger.warn({ jid, rowid, err: err.message }, 'Failed to mark message as failed');
   }
 }

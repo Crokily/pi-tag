@@ -76,6 +76,12 @@ export async function startGateway(): Promise<void> {
 
     await startSlack();
     if (shutdownPromise) {
+      // A signal arrived while startSlack was still connecting: shutdown()
+      // already ran to completion and its stopSlack() was a no-op (the app
+      // reference was not set yet). Undo the now-finished start so the
+      // Socket Mode WebSocket does not keep the process alive against a
+      // closed database.
+      stopSlack();
       await shutdownPromise;
       return;
     }

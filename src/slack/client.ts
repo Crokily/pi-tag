@@ -22,7 +22,12 @@ import {
   selectAttachmentsWithinLimits,
 } from '../platform/attachments.js';
 import { registerCommands } from './commands.js';
-import { normalizeSlackText, splitMessage, SLACK_MAX_MESSAGE_LENGTH } from './text.js';
+import {
+  buildTriggerPattern,
+  resolveInboundContent,
+  splitMessage,
+  SLACK_MAX_MESSAGE_LENGTH,
+} from './text.js';
 
 /** Inbound message event shape as delivered by Bolt's message listener. */
 type InboundMessageEvent = SlackEventMiddlewareArgs<'message'>['message'];
@@ -35,6 +40,8 @@ let teamName: string | undefined;
 
 /** userId → display name, populated lazily via users.info */
 const USER_NAME_TTL_MS = 10 * 60 * 1000;
+/** Short re-arm after a failed lookup so an outage isn't a users.info call per message. */
+const USER_NAME_FAILURE_TTL_MS = 60 * 1000;
 const userNameCache = new Map<string, { name: string; expiresAt: number }>();
 
 export async function startSlack(): Promise<void> {
@@ -66,7 +73,7 @@ export async function startSlack(): Promise<void> {
   botUserId = auth.user_id ?? '';
   teamName = auth.team;
   botTag = `${auth.user ?? 'unknown'} (${auth.user_id ?? '?'}, ${auth.team ?? '?'})`;
-  triggerPattern = new RegExp(`^@${escapeRegExp(config.triggerName)}\\b`, 'i');
+  triggerPattern = buildTriggerPattern(config.triggerName);
 
   app = boltApp;
   try {
@@ -105,25 +112,18 @@ async function handleMessage(event: InboundMessageEvent): Promise<void> {
   }
 
   // ── Build content ──
-  // Undo Slack's HTML-entity escaping and link syntax so pi sees what the
-  // human typed. Bot-mention handling below runs on the normalized text
-  // (mentions are left intact by normalizeSlackText).
-  let content = normalizeSlackText(event.text ?? '');
+  // Translate a real <@bot> mention → trigger format, then undo Slack's
+  // HTML-entity escaping and link syntax so pi sees what the human typed.
+  // Mention handling runs on the RAW text (before entity decoding) so a
+  // user-typed literal like `&lt;@U…&gt;` can never false-trigger the bot;
+  // see resolveInboundContent.
+  let content = resolveInboundContent(event.text ?? '', {
+    botUserId,
+    triggerName: config.triggerName,
+  });
   const sender = event.user;
   const senderName = await resolveUserName(sender);
   const timestamp = slackTsToIso(event.ts);
-
-  // Translate <@bot> mentions → trigger format. The pattern is terminated
-  // (`>` required) so another user id sharing our id as a prefix never
-  // false-triggers.
-  const botMention = botUserId ? new RegExp(`<@${botUserId}(\\|[^>]*)?>`, 'g') : null;
-  if (botMention?.test(content)) {
-    botMention.lastIndex = 0;
-    content = content.replace(botMention, '').trim();
-    if (!triggerPattern.test(content)) {
-      content = `@${config.triggerName} ${content}`;
-    }
-  }
 
   // Attachments → extract metadata for downstream download (url_private
   // requires a Bearer header; session/media.ts injects it for slack.com hosts)
@@ -343,9 +343,16 @@ async function resolveUserName(userId: string): Promise<string> {
     userNameCache.set(userId, { name, expiresAt: Date.now() + USER_NAME_TTL_MS });
     return name;
   } catch (err: any) {
-    // Missing users:read scope: fall back to the raw user id.
+    // Transient failure or missing users:read scope: prefer the expired
+    // cached name over the raw user id, and re-arm the entry with a short
+    // expiry so the next lookup retries soon without hammering users.info.
     logger.debug({ userId, err: err.message }, 'users.info lookup failed');
-    return userId;
+    const fallback = cached?.name ?? userId;
+    userNameCache.set(userId, {
+      name: fallback,
+      expiresAt: Date.now() + USER_NAME_FAILURE_TTL_MS,
+    });
+    return fallback;
   }
 }
 
@@ -357,7 +364,7 @@ async function resolveChannelName(channelId: string): Promise<string> {
     const res = await app.client.conversations.info({ channel: channelId });
     return res.channel?.name_normalized || res.channel?.name || channelId;
   } catch (err: any) {
-    // Missing channels:read/groups:read scope: fall back to the raw id.
+    // Missing channels:read/groups:read/mpim:read scope: fall back to the raw id.
     logger.debug({ channelId, err: err.message }, 'conversations.info lookup failed');
     return channelId;
   }
@@ -379,8 +386,4 @@ async function paceOutbound(channelId: string): Promise<void> {
 function slackTsToIso(ts: string): string {
   const ms = Number.parseFloat(ts) * 1000;
   return Number.isFinite(ms) ? new Date(ms).toISOString() : new Date().toISOString();
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

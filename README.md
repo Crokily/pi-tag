@@ -116,6 +116,8 @@ Re-running `pitag register` with `--cwd` updates that channel's working director
 | `allowlist` | Only DMs registered via `pitag register` get responses.   |
 | `disabled`  | All DMs are ignored.                                      |
 
+Note: `DM_POLICY` governs one-to-one DMs only. Group DMs (mpim) behave like channels and follow `CHANNEL_POLICY` — under the default `allowlist` they stay inactive unless registered.
+
 ## Sessions and Threads
 
 - **One session per channel.** Each registered channel (or DM) maps to its own pi session directory; conversation history persists across messages via `pi --continue`.
@@ -389,7 +391,7 @@ Read this section before exposing the bot to anyone but yourself.
 - Review attachment size limits before exposing the bot.
 - Run the service as a normal user, not root.
 
-Scope note: the bundled manifest requests the minimal scope set the gateway uses (message events for channels/groups/DMs, `chat:write`, files read/write, `reactions:write`, `users:read`, `channels:read`/`groups:read` for readable auto-registration labels, `commands`). The gateway never pulls channel history — it only sees the events Slack pushes to it.
+Scope note: the bundled manifest requests the minimal scope set the gateway uses (message events for channels/groups/DMs, `chat:write`, files read/write, `reactions:write`, `users:read`, `channels:read`/`groups:read`/`mpim:read` for readable auto-registration labels, `commands`). The gateway never pulls channel history — it only sees the events Slack pushes to it.
 
 To report a vulnerability, see [SECURITY.md](./SECURITY.md).
 

@@ -36,9 +36,9 @@ export function splitMessage(text: string, max: number = SLACK_MAX_MESSAGE_LENGT
  *
  * Slack escapes `&`, `<`, `>` as HTML entities and wraps links/refs in
  * angle-bracket syntax (https://docs.slack.dev/messaging/formatting-message-text).
- * User mentions (`<@U…>`) are intentionally left intact — the client handles
- * the bot's own mention, and other mentions pass through verbatim like the
- * Discord gateway did.
+ * User mentions (`<@U…>`) are intentionally left intact — the bot's own
+ * mention is handled on the raw text by resolveInboundContent, and other
+ * mentions pass through verbatim like the Discord gateway did.
  */
 export function normalizeSlackText(text: string): string {
   let result = text;
@@ -71,4 +71,43 @@ export function normalizeSlackText(text: string): string {
   result = result.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
   return result;
+}
+
+/**
+ * Build the agent-facing content from RAW inbound Slack text.
+ *
+ * Bot-mention handling must run on the raw text, BEFORE entity decoding: a
+ * real mention arrives as `<@U…>` while the same characters typed literally
+ * (e.g. quoting a payload or writing `<@U…>` in backticks) arrive escaped as
+ * `&lt;@U…&gt;`. Matching first guarantees decoded literal text can never
+ * false-trigger the bot. A real mention is stripped and translated to the
+ * `@<triggerName>` prefix (unless one is already present) so downstream
+ * trigger checks treat mention and prefix identically.
+ */
+export function resolveInboundContent(
+  rawText: string,
+  opts: { botUserId: string; triggerName: string },
+): string {
+  // The pattern is terminated (`>` required) so another user id sharing the
+  // bot's id as a prefix never false-triggers.
+  const botMention = opts.botUserId
+    ? new RegExp(`<@${escapeRegExp(opts.botUserId)}(\\|[^>]*)?>`, 'g')
+    : null;
+  if (!botMention?.test(rawText)) {
+    return normalizeSlackText(rawText);
+  }
+
+  botMention.lastIndex = 0;
+  const content = normalizeSlackText(rawText.replace(botMention, '').trim());
+  const triggerPattern = buildTriggerPattern(opts.triggerName);
+  return triggerPattern.test(content) ? content : `@${opts.triggerName} ${content}`;
+}
+
+/** Pattern matching the `@<triggerName>` prefix at the start of a message. */
+export function buildTriggerPattern(triggerName: string): RegExp {
+  return new RegExp(`^@${escapeRegExp(triggerName)}\\b`, 'i');
+}
+
+export function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

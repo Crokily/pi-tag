@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeSlackText, splitMessage, SLACK_MAX_MESSAGE_LENGTH } from '../src/slack/text.js';
+import {
+  buildTriggerPattern,
+  normalizeSlackText,
+  resolveInboundContent,
+  splitMessage,
+  SLACK_MAX_MESSAGE_LENGTH,
+} from '../src/slack/text.js';
 
 describe('normalizeSlackText', () => {
   it('decodes the three Slack HTML entities', () => {
@@ -49,6 +55,58 @@ describe('normalizeSlackText', () => {
     expect(normalizeSlackText('if (a &lt; b &amp;&amp; b &gt; c) {}')).toBe(
       'if (a < b && b > c) {}',
     );
+  });
+});
+
+describe('resolveInboundContent', () => {
+  const opts = { botUserId: 'U0BOT123', triggerName: 'pi' };
+
+  it('translates a real bot mention into the trigger prefix', () => {
+    expect(resolveInboundContent('<@U0BOT123> run the tests', opts)).toBe('@pi run the tests');
+  });
+
+  it('handles labeled bot mentions', () => {
+    expect(resolveInboundContent('<@U0BOT123|pi> hello', opts)).toBe('@pi hello');
+  });
+
+  it('does not double-prefix when the trigger is already present', () => {
+    expect(resolveInboundContent('<@U0BOT123> @pi do it', opts)).toBe('@pi do it');
+  });
+
+  it('normalizes entities in mention-triggered content', () => {
+    expect(resolveInboundContent('<@U0BOT123> a &amp; b &lt; c', opts)).toBe('@pi a & b < c');
+  });
+
+  it('never false-triggers on escaped literal mention text', () => {
+    // User typed the literal text `<@U0BOT123>` (e.g. quoting a payload);
+    // Slack delivers it entity-escaped. It must decode without triggering.
+    expect(resolveInboundContent('&lt;@U0BOT123&gt; what does this render as?', opts)).toBe(
+      '<@U0BOT123> what does this render as?',
+    );
+  });
+
+  it('never matches another user id sharing the bot id as a prefix', () => {
+    expect(resolveInboundContent('<@U0BOT1234> hi', opts)).toBe('<@U0BOT1234> hi');
+  });
+
+  it('normalizes without mention handling when the bot id is unknown', () => {
+    expect(resolveInboundContent('a &amp; b', { botUserId: '', triggerName: 'pi' })).toBe('a & b');
+  });
+});
+
+describe('buildTriggerPattern', () => {
+  it('matches the trigger prefix case-insensitively at the start only', () => {
+    const pattern = buildTriggerPattern('pi');
+    expect(pattern.test('@pi status')).toBe(true);
+    expect(pattern.test('@PI status')).toBe(true);
+    expect(pattern.test('say @pi status')).toBe(false);
+    expect(pattern.test('@pier status')).toBe(false);
+  });
+
+  it('escapes regex metacharacters in the trigger name', () => {
+    const pattern = buildTriggerPattern('pi.bot');
+    expect(pattern.test('@pi.bot status')).toBe(true);
+    expect(pattern.test('@piXbot status')).toBe(false);
   });
 });
 

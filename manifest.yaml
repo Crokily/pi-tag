@@ -38,9 +38,10 @@ oauth_config:
       - groups:history
       - im:history
       - mpim:history
-      # conversations.info for auto-registered channel labels
+      # conversations.info for auto-registered channel/group/mpim labels
       - channels:read
       - groups:read
+      - mpim:read
       - files:read
       - files:write
       - reactions:write

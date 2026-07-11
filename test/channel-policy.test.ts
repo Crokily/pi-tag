@@ -74,6 +74,20 @@ describe('buildConfigFile channel policy settings', () => {
     expect(text).toContain('CHANNEL_POLICY=open-trigger');
     expect(text).toContain('EXCLUDED_CHANNELS=');
   });
+
+  it('defaults the channel policy to allowlist, matching config and docs', async () => {
+    const { buildConfigFile } = await import('../src/cli/setup.js');
+    const text = buildConfigFile({
+      botToken: 'xoxb-test-token',
+      appToken: 'xapp-test-token',
+      triggerName: 'PiBot',
+      workingDir: '/workspace/project',
+      sessionsDir: '/var/lib/pi-tag/sessions',
+      dbPath: '/var/lib/pi-tag/gateway.db',
+    });
+
+    expect(text).toContain('CHANNEL_POLICY=allowlist');
+  });
 });
 
 function createIsolatedDirs(): { homeDir: string; workDir: string } {
