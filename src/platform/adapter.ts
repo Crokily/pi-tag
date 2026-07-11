@@ -30,4 +30,10 @@ export interface PlatformAdapter {
    * message instead. Best-effort: implementations must never reject.
    */
   setBusy(jid: string, on: boolean, ctx?: { ts?: string }): Promise<void>;
+
+  /**
+   * Upload local files to a channel as native attachments (used when agent
+   * output references files on the gateway host). Returns false on failure.
+   */
+  sendFiles(jid: string, filePaths: string[], ctx?: { threadTs?: string }): Promise<boolean>;
 }

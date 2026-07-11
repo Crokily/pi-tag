@@ -19,8 +19,11 @@ import {
   getChannel,
 } from '../db.js';
 import type { QueuedMessage } from '../types.js';
+import { statSync } from 'node:fs';
+import { basename } from 'node:path';
 import { invokeAgent } from './invoke.js';
-import { sendResponse, setBusy } from '../slack/client.js';
+import { sendFiles, sendResponse, setBusy } from '../slack/client.js';
+import { extractFileUris } from '../slack/text.js';
 import { computeEffectiveChannelSettings } from './channel-settings.js';
 
 /** Channels currently being processed (per-channel serial lock) */
@@ -215,7 +218,11 @@ async function processMessage(jid: string, msg: QueuedMessage, signal: AbortSign
   const replyCtx = { threadTs: msg.thread_ts ?? undefined };
 
   try {
-    const prompt = `[Slack user: ${senderName}]\n${content}`;
+    const prompt =
+      `[Slack user: ${senderName}]\n` +
+      `[To share a file with the user, run: pitag send --channel ${jid} --file <absolute-path> ` +
+      `(repeat --file for multiple). Do not paste file:// links — they are dead for Slack users.]\n` +
+      content;
 
     logMessage(jid, 'user', content);
 
@@ -236,11 +243,41 @@ async function processMessage(jid: string, msg: QueuedMessage, signal: AbortSign
     }
 
     if (result.ok) {
-      const sent = await sendResponse(jid, result.text, replyCtx);
+      // Safety net: if the agent still wrote file:// links instead of using
+      // `pitag send`, upload those files as real attachments and post the
+      // cleaned text. The cleaned text is only used when every referenced
+      // file is shareable, so no path information is ever lost.
+      const extracted = extractFileUris(result.text);
+      const shareable = extracted.paths.filter((path) => {
+        try {
+          const stats = statSync(path);
+          return (
+            stats.isFile() &&
+            (config.maxAttachmentBytes <= 0 || stats.size <= config.maxAttachmentBytes)
+          );
+        } catch {
+          return false;
+        }
+      });
+      const allShareable = shareable.length > 0 && shareable.length === extracted.paths.length;
+      const responseText = allShareable ? extracted.text : result.text;
+
+      const sent = await sendResponse(jid, responseText, replyCtx);
       if (!sent) {
         markMessageFailed(rowid);
         logger.warn({ jid }, 'Agent response generated but could not be delivered to Slack');
         return;
+      }
+
+      if (shareable.length > 0) {
+        const uploaded = await sendFiles(jid, shareable, replyCtx);
+        if (!uploaded) {
+          await sendResponse(
+            jid,
+            `⚠️ Could not upload: ${shareable.map((path) => basename(path)).join(', ')}`,
+            replyCtx,
+          );
+        }
       }
 
       logMessage(jid, 'assistant', result.text);

@@ -22,6 +22,7 @@ import {
   selectAttachmentsWithinLimits,
 } from '../platform/attachments.js';
 import { registerCommands } from './commands.js';
+import { uploadFilesExternal } from './files.js';
 import {
   buildTriggerPattern,
   resolveInboundContent,
@@ -277,6 +278,34 @@ export async function sendResponse(
     return true;
   } catch (err: any) {
     logger.error({ jid, err: err.message }, 'Failed to send message');
+    return false;
+  }
+}
+
+/**
+ * Upload local files to the channel as real Slack attachments. Used when the
+ * agent's response references files on the gateway host (a file:// link would
+ * be dead for every Slack recipient).
+ */
+export async function sendFiles(
+  jid: string,
+  filePaths: string[],
+  ctx?: { threadTs?: string },
+): Promise<boolean> {
+  if (!app || filePaths.length === 0) return false;
+
+  const channelId = jid.replace(/^sl:/, '');
+  const threadTs = config.replyInThread ? ctx?.threadTs : undefined;
+  try {
+    await uploadFilesExternal(
+      app.client,
+      filePaths.map((filePath) => ({ filePath })),
+      { channelId, threadTs },
+    );
+    logger.info({ jid, count: filePaths.length }, 'Files uploaded');
+    return true;
+  } catch (err: any) {
+    logger.error({ jid, err: err.message }, 'Failed to upload files');
     return false;
   }
 }

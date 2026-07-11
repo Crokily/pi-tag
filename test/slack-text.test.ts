@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTriggerPattern,
+  extractFileUris,
   normalizeSlackText,
   resolveInboundContent,
   splitMessage,
@@ -107,6 +108,42 @@ describe('buildTriggerPattern', () => {
     const pattern = buildTriggerPattern('pi.bot');
     expect(pattern.test('@pi.bot status')).toBe(true);
     expect(pattern.test('@piXbot status')).toBe(false);
+  });
+});
+
+describe('extractFileUris', () => {
+  it('extracts a markdown file link and keeps its label', () => {
+    const { paths, text } = extractFileUris('Here: [the report](file:///home/u/report.pdf)');
+    expect(paths).toEqual(['/home/u/report.pdf']);
+    expect(text).toBe('Here: the report');
+  });
+
+  it('extracts a bare file URI and shows the file name', () => {
+    const { paths, text } = extractFileUris('Saved to file:///home/u/report.pdf');
+    expect(paths).toEqual(['/home/u/report.pdf']);
+    expect(text).toBe('Saved to 📎 report.pdf');
+  });
+
+  it('extracts angle-bracketed URIs and decodes percent-encoding', () => {
+    const { paths } = extractFileUris('<file:///home/u/my%20doc.txt>');
+    expect(paths).toEqual(['/home/u/my doc.txt']);
+  });
+
+  it('strips trailing sentence punctuation', () => {
+    const { paths } = extractFileUris('I wrote file:///home/u/out.csv.');
+    expect(paths).toEqual(['/home/u/out.csv']);
+  });
+
+  it('deduplicates repeated references', () => {
+    const { paths } = extractFileUris('file:///home/u/a.txt and again [a](file:///home/u/a.txt)');
+    expect(paths).toEqual(['/home/u/a.txt']);
+  });
+
+  it('leaves http links and plain text untouched', () => {
+    const input = 'see https://example.com/file.pdf and /home/u/not-a-link.txt';
+    const { paths, text } = extractFileUris(input);
+    expect(paths).toEqual([]);
+    expect(text).toBe(input);
   });
 });
 
