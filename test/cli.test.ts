@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { sendFilesToDiscordMock, startGatewayMock } = vi.hoisted(() => ({
-  sendFilesToDiscordMock: vi.fn(),
+const { sendFilesToSlackMock, startGatewayMock } = vi.hoisted(() => ({
+  sendFilesToSlackMock: vi.fn(),
   startGatewayMock: vi.fn(),
 }));
 
-vi.mock('../src/discord/send.js', () => ({
-  sendFilesToDiscord: sendFilesToDiscordMock,
+vi.mock('../src/slack/send.js', () => ({
+  sendFilesToSlack: sendFilesToSlackMock,
 }));
 
 vi.mock('../src/index.js', () => ({
@@ -18,7 +18,7 @@ vi.mock('../src/index.js', () => ({
 
 const originalEnv = { ...process.env };
 const tempDirs: string[] = [];
-const CONFIG_ENV_KEYS = ['DB_PATH', 'HOME', 'PI_CWD', 'PIDG_CONFIG', 'SESSIONS_DIR'];
+const CONFIG_ENV_KEYS = ['DB_PATH', 'HOME', 'PI_CWD', 'PITAG_CONFIG', 'SESSIONS_DIR'];
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -45,19 +45,20 @@ describe('formatHelpText', () => {
     const { formatHelpText } = await import('../src/cli/index.js');
     const help = formatHelpText();
 
-    expect(help).toContain('piscord setup');
-    expect(help).toContain('piscord start');
-    expect(help).toContain('piscord status');
-    expect(help).toContain('piscord register');
-    expect(help).toContain('piscord daemon install');
-    expect(help).toContain('piscord send --channel <jid> [--text <message>] [--file <path> ...]');
+    expect(help).toContain('pitag setup');
+    expect(help).toContain('pitag start');
+    expect(help).toContain('pitag status');
+    expect(help).toContain('pitag register');
+    expect(help).toContain('pitag daemon install');
+    expect(help).toContain('pitag send --channel <jid> [--text <message>] [--file <path> ...]');
+    expect(help).toContain('sl:C0123456789');
     expect(help).toContain('--cwd <path>');
   });
 });
 
 describe('start command', () => {
   it('does not report ESM-only pi-ai as a missing peer dependency', async () => {
-    process.env.PIDG_CONFIG = resolve('package.json');
+    process.env.PITAG_CONFIG = resolve('package.json');
     startGatewayMock.mockResolvedValue(undefined);
 
     vi.resetModules();
@@ -70,7 +71,7 @@ describe('start command', () => {
 
 describe('send command', () => {
   it('allows text-only sends and normalizes the channel id', async () => {
-    sendFilesToDiscordMock.mockResolvedValue({ sentFiles: 0 });
+    sendFilesToSlackMock.mockResolvedValue({ sentFiles: 0 });
 
     vi.resetModules();
     const { main } = await import('../src/cli/index.js');
@@ -79,29 +80,29 @@ describe('send command', () => {
       logged.push(args.join(' '));
     });
 
-    await expect(main(['send', '--channel', '123', '--text', 'hello'])).resolves.toBe(0);
-    expect(sendFilesToDiscordMock).toHaveBeenCalledWith({
-      channelJid: 'dc:123',
+    await expect(main(['send', '--channel', 'C0123456789', '--text', 'hello'])).resolves.toBe(0);
+    expect(sendFilesToSlackMock).toHaveBeenCalledWith({
+      channelJid: 'sl:C0123456789',
       text: 'hello',
       files: [],
     });
-    expect(logged.join('\n')).toContain('Sent message to dc:123');
+    expect(logged.join('\n')).toContain('Sent message to sl:C0123456789');
   });
 
   it('rejects send requests with neither text nor files', async () => {
     vi.resetModules();
     const { main } = await import('../src/cli/index.js');
 
-    await expect(main(['send', '--channel', '123'])).rejects.toThrow(
+    await expect(main(['send', '--channel', 'C0123456789'])).rejects.toThrow(
       'At least one of --text or --file is required.',
     );
-    expect(sendFilesToDiscordMock).not.toHaveBeenCalled();
+    expect(sendFilesToSlackMock).not.toHaveBeenCalled();
   });
 });
 
 describe('register command cwd support', () => {
   it('stores a per-channel cwd override and shows it in channel listings', async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), 'pidg-cli-'));
+    const tempDir = mkdtempSync(join(tmpdir(), 'pitag-cli-'));
     tempDirs.push(tempDir);
 
     process.env.DB_PATH = resolve(tempDir, 'gateway.db');
@@ -116,15 +117,15 @@ describe('register command cwd support', () => {
     });
 
     await expect(
-      main(['register', '123', 'my-server #general', '--cwd', '/workspace/project']),
+      main(['register', 'C0123456789', 'my-workspace #general', '--cwd', '/workspace/project']),
     ).resolves.toBe(0);
     expect(logged.join('\n')).toContain('Working directory: /workspace/project (channel override)');
 
     const db = await import('../src/db.js');
     db.initDb();
     try {
-      expect(db.getChannel('dc:123')).toMatchObject({
-        jid: 'dc:123',
+      expect(db.getChannel('sl:C0123456789')).toMatchObject({
+        jid: 'sl:C0123456789',
         cwdOverride: '/workspace/project',
       });
     } finally {

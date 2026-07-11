@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { type AttachmentMeta } from '../discord/attachments.js';
+import { type AttachmentMeta } from '../types.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { type DownloadedFile, downloadAttachments } from '../session/media.js';
@@ -56,7 +56,7 @@ export async function invokeAgent(
   const effectiveCwd = opts?.cwd || config.piCwd;
 
   // `--session` expects a session *file* path. We want a dedicated directory per
-  // Discord channel and to keep reusing the most recent session inside it.
+  // Slack channel and to keep reusing the most recent session inside it.
   const args: string[] = ['--session-dir', sessionDir, '--continue'];
 
   // Model

@@ -1,7 +1,7 @@
-import { config } from './config.js';
+import { config, validateSlackTokens } from './config.js';
 import { logger } from './logger.js';
 import { initDb, closeDb, getAllChannels } from './db.js';
-import { startDiscord, stopDiscord, getBotTag } from './discord/client.js';
+import { startSlack, stopSlack, getBotTag } from './slack/client.js';
 import { startArchiveCleanup } from './session/archive-cleanup.js';
 import { startMediaCleanup } from './session/media.js';
 import { listAvailableModels } from './agent/model-catalog.js';
@@ -9,16 +9,15 @@ import { startProcessingLoop, stopProcessingLoop } from './agent/queue.js';
 import { startScheduler } from './agent/scheduler.js';
 
 /**
- * pi-discord-gateway - Lightweight Discord gateway for pi coding agent.
+ * pi-tag - Lightweight Slack gateway for pi coding agent.
  *
  * Architecture inspired by NanoClaw (https://github.com/qwibitai/nanoclaw).
- * Discord messages -> SQLite queue -> pi subprocess -> Discord response.
+ * Slack messages (Socket Mode) -> SQLite queue -> pi subprocess -> Slack response.
  */
 export async function startGateway(): Promise<void> {
-  if (!config.discordToken) {
-    throw new Error(
-      'DISCORD_BOT_TOKEN is required. Set it in config.env, .env, or the environment.',
-    );
+  const tokenProblems = validateSlackTokens(config);
+  if (tokenProblems.length > 0) {
+    throw new Error(tokenProblems.join(' '));
   }
 
   initDb();
@@ -63,7 +62,7 @@ export async function startGateway(): Promise<void> {
         await stopProcessingLoop({ timeoutMs: config.shutdownTimeoutMs });
       }
 
-      stopDiscord();
+      stopSlack();
       closeDb();
       logger.info('Gateway stopped');
     })();
@@ -72,10 +71,10 @@ export async function startGateway(): Promise<void> {
   };
 
   try {
-    logger.info('Starting pi-discord-gateway...');
+    logger.info('Starting pi-tag...');
     warmModelCatalogs();
 
-    await startDiscord();
+    await startSlack();
     if (shutdownPromise) {
       await shutdownPromise;
       return;

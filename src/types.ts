@@ -14,6 +14,14 @@ export interface RegisteredChannel {
   cwdOverride: string;
 }
 
+/** Inbound attachment metadata captured at enqueue time (platform-neutral) */
+export interface AttachmentMeta {
+  url: string;
+  name: string;
+  contentType: string;
+  size: number;
+}
+
 /** Queued message row from SQLite */
 export interface QueuedMessage {
   rowid: number;
@@ -25,6 +33,10 @@ export interface QueuedMessage {
   status: 'pending' | 'processing' | 'done' | 'failed';
   /** JSON array of attachment metadata, or null */
   attachments: string | null;
+  /** Platform ts of the triggering message (Slack message ts), or null */
+  event_ts: string | null;
+  /** Parent thread ts when the triggering message lives in a thread, or null */
+  thread_ts: string | null;
 }
 
 /** Agent invocation result */

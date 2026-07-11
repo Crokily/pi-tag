@@ -1,4 +1,4 @@
-# Contributing to pi-discord-gateway
+# Contributing to pi-tag
 
 Thanks for your interest in contributing! This guide will help you get started.
 
@@ -7,8 +7,8 @@ Thanks for your interest in contributing! This guide will help you get started.
 1. **Fork and clone** the repository:
 
    ```bash
-   git clone https://github.com/<your-username>/pi-discord-gateway.git
-   cd pi-discord-gateway
+   git clone https://github.com/<your-username>/pi-tag.git
+   cd pi-tag
    ```
 
 2. **Install dependencies** (Node.js >= 20 required):
@@ -17,7 +17,7 @@ Thanks for your interest in contributing! This guide will help you get started.
    npm install
    ```
 
-3. **Copy the environment file** and fill in your Discord bot token:
+3. **Copy the environment file** and fill in your Slack tokens (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`):
 
    ```bash
    cp .env.example .env
@@ -59,7 +59,7 @@ Thanks for your interest in contributing! This guide will help you get started.
    feat: add slash command for channel settings
    fix: prevent duplicate queue entries
    docs: update setup instructions
-   chore: bump discord.js to v14.19
+   chore: bump @slack/bolt to v4.8
    ```
 
 5. Push your branch and open a Pull Request against `main`.

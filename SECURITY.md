@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Security updates are provided for the latest released version of pi-discord-gateway.
+Security updates are provided for the latest released version of pi-tag.
 
 ## Reporting a Vulnerability
 

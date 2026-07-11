@@ -13,31 +13,28 @@ function defaultConfigPath(): string {
     case 'win32':
       return resolve(
         process.env.APPDATA || resolve(homedir(), 'AppData/Roaming'),
-        'piscord-gateway/config.env',
+        'pitag/config.env',
       );
     case 'darwin':
-      return resolve(homedir(), 'Library/Application Support/piscord-gateway/config.env');
+      return resolve(homedir(), 'Library/Application Support/pitag/config.env');
     default:
-      return resolve(homedir(), '.config', 'pi-discord-gateway', 'config.env');
+      return resolve(homedir(), '.config', 'pitag', 'config.env');
   }
 }
 
 export function defaultDataDir(): string {
   switch (process.platform) {
     case 'win32':
-      return resolve(
-        process.env.LOCALAPPDATA || resolve(homedir(), 'AppData/Local'),
-        'piscord-gateway',
-      );
+      return resolve(process.env.LOCALAPPDATA || resolve(homedir(), 'AppData/Local'), 'pitag');
     case 'darwin':
-      return resolve(homedir(), 'Library/Application Support/piscord-gateway');
+      return resolve(homedir(), 'Library/Application Support/pitag');
     default:
-      return resolve(homedir(), '.local/share', 'piscord-gateway');
+      return resolve(homedir(), '.local/share', 'pitag');
   }
 }
 
 export function resolveConfigPath(): string {
-  const configuredPath = process.env.PIDG_CONFIG?.trim() ?? '';
+  const configuredPath = process.env.PITAG_CONFIG?.trim() ?? '';
   if (configuredPath) {
     return resolveUserPath(configuredPath);
   }
@@ -132,9 +129,22 @@ function parseChannelPolicy(value: string): ChannelPolicy {
   return 'allowlist';
 }
 
+const VALID_DM_POLICIES = ['open', 'allowlist', 'disabled'] as const;
+export type DmPolicy = (typeof VALID_DM_POLICIES)[number];
+
+function parseDmPolicy(value: string): DmPolicy {
+  if ((VALID_DM_POLICIES as readonly string[]).includes(value)) {
+    return value as DmPolicy;
+  }
+  return 'open';
+}
+
 export const config = {
-  /** Discord bot token (required) */
-  discordToken: env('DISCORD_BOT_TOKEN'),
+  /** Slack bot token, xoxb- prefix (required) */
+  slackBotToken: env('SLACK_BOT_TOKEN'),
+
+  /** Slack app-level token for Socket Mode, xapp- prefix (required) */
+  slackAppToken: env('SLACK_APP_TOKEN'),
 
   /** Pi binary path */
   piBin: env('PI_BIN', 'pi'),
@@ -181,8 +191,11 @@ export const config = {
   /** Extra pi flags (space-separated) */
   piExtraFlags: env('PI_EXTRA_FLAGS'),
 
-  /** Auto-register DM channels */
-  autoRegisterDMs: envBool('AUTO_REGISTER_DMS', true),
+  /** DM access policy: open (auto-register), allowlist, or disabled */
+  dmPolicy: parseDmPolicy(env('DM_POLICY', 'open')),
+
+  /** Post responses into the triggering message's thread when it has one */
+  replyInThread: envBool('REPLY_IN_THREAD', true),
 
   /** Channel access policy: open, open-trigger, or allowlist */
   channelPolicy: parseChannelPolicy(env('CHANNEL_POLICY', 'allowlist')),
@@ -195,11 +208,35 @@ export const config = {
       .filter(Boolean),
   ),
 
-  /** Max size for a single Discord attachment in bytes (0 disables the limit) */
+  /** Max size for a single Slack attachment in bytes (0 disables the limit) */
   maxAttachmentBytes: envInt('MAX_ATTACHMENT_BYTES', 25 * 1024 * 1024, { min: 0 }),
 
-  /** Max combined attachment size per Discord message in bytes (0 disables the limit) */
+  /** Max combined attachment size per Slack message in bytes (0 disables the limit) */
   maxTotalAttachmentBytes: envInt('MAX_TOTAL_ATTACHMENT_BYTES', 50 * 1024 * 1024, { min: 0 }),
 } as const;
 
 export type Config = typeof config;
+
+/**
+ * Validate the Slack token pair. Returns human-readable problems (empty when
+ * valid); callers decide whether to throw (gateway startup) or report (status).
+ */
+export function validateSlackTokens(
+  cfg: Pick<Config, 'slackBotToken' | 'slackAppToken'>,
+): string[] {
+  const problems: string[] = [];
+
+  if (!cfg.slackBotToken) {
+    problems.push('SLACK_BOT_TOKEN is required. Set it in config.env, .env, or the environment.');
+  } else if (!cfg.slackBotToken.startsWith('xoxb-')) {
+    problems.push('SLACK_BOT_TOKEN must start with "xoxb-" (bot token).');
+  }
+
+  if (!cfg.slackAppToken) {
+    problems.push('SLACK_APP_TOKEN is required. Set it in config.env, .env, or the environment.');
+  } else if (!cfg.slackAppToken.startsWith('xapp-')) {
+    problems.push('SLACK_APP_TOKEN must start with "xapp-" (app-level token).');
+  }
+
+  return problems;
+}

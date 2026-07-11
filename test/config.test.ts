@@ -7,24 +7,26 @@ const originalCwd = process.cwd();
 const originalEnv = { ...process.env };
 const tempDirs: string[] = [];
 const CONFIG_ENV_KEYS = [
-  'AUTO_REGISTER_DMS',
   'DB_PATH',
-  'DISCORD_BOT_TOKEN',
+  'DM_POLICY',
   'HOME',
   'LOG_LEVEL',
   'MAX_ATTACHMENT_BYTES',
   'MAX_CONCURRENCY',
   'MAX_TOTAL_ATTACHMENT_BYTES',
   'MEDIA_RETENTION_HOURS',
-  'PIDG_CONFIG',
+  'PITAG_CONFIG',
   'PI_BIN',
   'PI_CWD',
   'PI_EXTRA_FLAGS',
   'PI_MODEL',
   'PI_THINKING',
   'POLL_INTERVAL_MS',
+  'REPLY_IN_THREAD',
   'SESSIONS_DIR',
   'SHUTDOWN_TIMEOUT_MS',
+  'SLACK_APP_TOKEN',
+  'SLACK_BOT_TOKEN',
   'TRIGGER_NAME',
 ];
 
@@ -47,16 +49,16 @@ afterEach(() => {
 });
 
 describe('resolveConfigPath', () => {
-  it('uses PIDG_CONFIG when set', async () => {
-    process.env.PIDG_CONFIG = '~/custom/pi-discord/config.env';
+  it('uses PITAG_CONFIG when set', async () => {
+    process.env.PITAG_CONFIG = '~/custom/pi-tag/config.env';
 
     const { resolveConfigPath } = await loadConfigModule();
 
-    expect(resolveConfigPath()).toBe(resolve(homedir(), 'custom/pi-discord/config.env'));
+    expect(resolveConfigPath()).toBe(resolve(homedir(), 'custom/pi-tag/config.env'));
   });
 
   it('falls back to the platform default config path', async () => {
-    delete process.env.PIDG_CONFIG;
+    delete process.env.PITAG_CONFIG;
 
     const { resolveConfigPath } = await loadConfigModule();
 
@@ -83,7 +85,7 @@ describe('config loading', () => {
 
     process.chdir(workDir);
     process.env.HOME = homeDir;
-    process.env.PIDG_CONFIG = configPath;
+    process.env.PITAG_CONFIG = configPath;
     process.env.PI_CWD = '/env/project';
     delete process.env.DB_PATH;
     delete process.env.SESSIONS_DIR;
@@ -112,7 +114,7 @@ describe('config loading', () => {
 
     process.chdir(workDir);
     process.env.HOME = homeDir;
-    delete process.env.PIDG_CONFIG;
+    delete process.env.PITAG_CONFIG;
     delete process.env.DB_PATH;
     delete process.env.SESSIONS_DIR;
 
@@ -123,13 +125,13 @@ describe('config loading', () => {
     expect(config.sessionsDir).toBe('/default/sessions');
   });
 
-  it('uses the piscord platform data directory defaults when storage paths are unset', async () => {
+  it('uses the pitag platform data directory defaults when storage paths are unset', async () => {
     const homeDir = createTempDir();
     const workDir = createTempDir();
 
     process.chdir(workDir);
     process.env.HOME = homeDir;
-    delete process.env.PIDG_CONFIG;
+    delete process.env.PITAG_CONFIG;
     delete process.env.DB_PATH;
     delete process.env.SESSIONS_DIR;
 
@@ -139,10 +141,70 @@ describe('config loading', () => {
     expect(config.dbPath).toBe(resolve(dataDir, 'gateway.db'));
     expect(config.sessionsDir).toBe(resolve(dataDir, 'sessions'));
   });
+
+  it('defaults dmPolicy to open and replyInThread to true', async () => {
+    const homeDir = createTempDir();
+    const workDir = createTempDir();
+
+    process.chdir(workDir);
+    process.env.HOME = homeDir;
+    delete process.env.PITAG_CONFIG;
+    delete process.env.DM_POLICY;
+    delete process.env.REPLY_IN_THREAD;
+
+    const { config } = await loadConfigModule();
+
+    expect(config.dmPolicy).toBe('open');
+    expect(config.replyInThread).toBe(true);
+  });
+
+  it('parses DM_POLICY and REPLY_IN_THREAD overrides and rejects unknown policies', async () => {
+    const homeDir = createTempDir();
+    const workDir = createTempDir();
+
+    process.chdir(workDir);
+    process.env.HOME = homeDir;
+    delete process.env.PITAG_CONFIG;
+    process.env.DM_POLICY = 'disabled';
+    process.env.REPLY_IN_THREAD = 'false';
+
+    const { config } = await loadConfigModule();
+
+    expect(config.dmPolicy).toBe('disabled');
+    expect(config.replyInThread).toBe(false);
+
+    process.env.DM_POLICY = 'bogus';
+    const { config: fallbackConfig } = await loadConfigModule();
+    expect(fallbackConfig.dmPolicy).toBe('open');
+  });
+});
+
+describe('validateSlackTokens', () => {
+  it('accepts a valid xoxb-/xapp- token pair', async () => {
+    const { validateSlackTokens } = await loadConfigModule();
+
+    expect(validateSlackTokens({ slackBotToken: 'xoxb-123', slackAppToken: 'xapp-456' })).toEqual(
+      [],
+    );
+  });
+
+  it('reports missing and mis-prefixed tokens', async () => {
+    const { validateSlackTokens } = await loadConfigModule();
+
+    expect(validateSlackTokens({ slackBotToken: '', slackAppToken: '' })).toHaveLength(2);
+
+    const prefixProblems = validateSlackTokens({
+      slackBotToken: 'xapp-wrong',
+      slackAppToken: 'xoxb-wrong',
+    });
+    expect(prefixProblems).toHaveLength(2);
+    expect(prefixProblems[0]).toContain('xoxb-');
+    expect(prefixProblems[1]).toContain('xapp-');
+  });
 });
 
 function createTempDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'pidg-config-'));
+  const dir = mkdtempSync(join(tmpdir(), 'pitag-config-'));
   tempDirs.push(dir);
   return dir;
 }
@@ -162,26 +224,23 @@ function expectedDefaultConfigPath(homeDir: string): string {
     case 'win32':
       return resolve(
         process.env.APPDATA || resolve(homeDir, 'AppData/Roaming'),
-        'piscord-gateway/config.env',
+        'pitag/config.env',
       );
     case 'darwin':
-      return resolve(homeDir, 'Library/Application Support/piscord-gateway/config.env');
+      return resolve(homeDir, 'Library/Application Support/pitag/config.env');
     default:
-      return resolve(homeDir, '.config', 'pi-discord-gateway', 'config.env');
+      return resolve(homeDir, '.config', 'pitag', 'config.env');
   }
 }
 
 function expectedDefaultDataDir(homeDir: string): string {
   switch (process.platform) {
     case 'win32':
-      return resolve(
-        process.env.LOCALAPPDATA || resolve(homeDir, 'AppData/Local'),
-        'piscord-gateway',
-      );
+      return resolve(process.env.LOCALAPPDATA || resolve(homeDir, 'AppData/Local'), 'pitag');
     case 'darwin':
-      return resolve(homeDir, 'Library/Application Support/piscord-gateway');
+      return resolve(homeDir, 'Library/Application Support/pitag');
     default:
-      return resolve(homeDir, '.local/share', 'piscord-gateway');
+      return resolve(homeDir, '.local/share', 'pitag');
   }
 }
 

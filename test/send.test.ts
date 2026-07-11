@@ -1,21 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import { normalizeChannelJid, validateSendRequest, type SendRequest } from '../src/discord/send.js';
+import { normalizeChannelJid, validateSendRequest, type SendRequest } from '../src/slack/send.js';
 
 function request(files: string[], text?: string): SendRequest {
   return {
-    channelJid: 'dc:123',
+    channelJid: 'sl:C123',
     text,
     files,
   };
 }
 
 describe('normalizeChannelJid', () => {
-  it('adds the dc: prefix when needed', () => {
-    expect(normalizeChannelJid('123')).toBe('dc:123');
+  it('adds the sl: prefix when needed', () => {
+    expect(normalizeChannelJid('C123')).toBe('sl:C123');
   });
 
-  it('keeps an existing dc: prefix', () => {
-    expect(normalizeChannelJid('dc:123')).toBe('dc:123');
+  it('keeps an existing sl: prefix', () => {
+    expect(normalizeChannelJid('sl:C123')).toBe('sl:C123');
   });
 });
 

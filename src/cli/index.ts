@@ -29,7 +29,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     }
     case 'status': {
       const { runStatus } = await import('./status.js');
-      runStatus();
+      await runStatus();
       return 0;
     }
     case 'archive':
@@ -52,7 +52,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       return 0;
     case 'daemon': {
       if (!args[0]) {
-        throw new Error('Usage: piscord daemon <install|uninstall|start|stop|status|logs>');
+        throw new Error('Usage: pitag daemon <install|uninstall|start|stop|status|logs>');
       }
 
       const { runDaemon } = await import('./daemon.js');
@@ -84,30 +84,36 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<vo
 
 export function formatHelpText(): string {
   return [
-    'piscord - Lightweight Discord gateway for pi coding agent',
+    'pitag - Lightweight Slack gateway for pi coding agent',
     '',
     'USAGE:',
-    '  piscord setup [token]                         Interactive setup wizard',
-    '  piscord start                                 Start the gateway in the foreground',
-    '  piscord status                                Show local diagnostics',
-    '  piscord archive list                          List archived sessions',
-    '  piscord archive cleanup [--dry-run]           Clean up archived sessions now',
-    '  piscord task add --name <n> --schedule <expr> --channel <jid> --prompt <text> [--once]',
-    '  piscord task list                             List scheduled tasks',
-    '  piscord task remove <id>                      Remove a scheduled task',
-    '  piscord task enable <id>                      Enable a scheduled task',
-    '  piscord task disable <id>                     Disable a scheduled task',
-    '  piscord channels                              List registered channels',
-    '  piscord send --channel <jid> [--text <message>] [--file <path> ...]',
-    '  piscord register <id> <name> [opts]          Register a Discord channel',
-    '  piscord unregister <id>                       Unregister a channel',
-    '  piscord daemon install                        Install background service (systemd/launchd)',
-    '  piscord daemon uninstall                      Remove background service',
-    '  piscord daemon start                          Start background service',
-    '  piscord daemon stop                           Stop background service',
-    '  piscord daemon status                         Show background service status',
-    '  piscord daemon logs                           Tail service logs',
-    '  piscord help                                  Show this help',
+    '  pitag setup [bot-token] [app-token]         Interactive setup wizard',
+    '  pitag start                                 Start the gateway in the foreground',
+    '  pitag status                                Show local diagnostics',
+    '  pitag archive list                          List archived sessions',
+    '  pitag archive cleanup [--dry-run]           Clean up archived sessions now',
+    '  pitag task add --name <n> --schedule <expr> --channel <jid> --prompt <text> [--once]',
+    '  pitag task list                             List scheduled tasks',
+    '  pitag task remove <id>                      Remove a scheduled task',
+    '  pitag task enable <id>                      Enable a scheduled task',
+    '  pitag task disable <id>                     Disable a scheduled task',
+    '  pitag channels                              List registered channels',
+    '  pitag send --channel <jid> [--text <message>] [--file <path> ...]',
+    '  pitag register <id> <name> [opts]           Register a Slack channel',
+    '  pitag unregister <id>                       Unregister a channel',
+    '  pitag daemon install                        Install background service (systemd/launchd)',
+    '  pitag daemon uninstall                      Remove background service',
+    '  pitag daemon start                          Start background service',
+    '  pitag daemon stop                           Stop background service',
+    '  pitag daemon status                         Show background service status',
+    '  pitag daemon logs                           Tail service logs',
+    '  pitag help                                  Show this help',
+    '',
+    'CHANNEL IDS:',
+    '  Copy the channel ID from Slack: open the channel details view and scroll to',
+    '  the bottom (public channels start with C, private with G, DMs with D).',
+    '  Channel jids are the ID with an "sl:" prefix (e.g. sl:C0123456789); bare IDs',
+    '  are accepted anywhere a jid is and prefixed automatically.',
     '',
     'REGISTER OPTIONS:',
     '  --folder <name>    Relative session folder name (default: ch_<id>)',
@@ -127,7 +133,7 @@ function printHelp(): void {
 async function cliRegister(args: string[]): Promise<void> {
   if (args.length < 2) {
     throw new Error(
-      'Usage: piscord register <channel-id> <name> [--folder <name>] [--cwd <path>] [--no-trigger] [--main]',
+      'Usage: pitag register <channel-id> <name> [--folder <name>] [--cwd <path>] [--no-trigger] [--main]',
     );
   }
 
@@ -136,7 +142,7 @@ async function cliRegister(args: string[]): Promise<void> {
   const options = parseRegisterOptions(channelId, optionArgs, validateSessionFolder);
 
   await withDb(({ getChannel, registerChannel }) => {
-    const jid = toDiscordChannelJid(channelId);
+    const jid = toSlackChannelJid(channelId);
     const existing = getChannel(jid);
     const channel: RegisteredChannel = {
       jid,
@@ -162,11 +168,11 @@ async function cliRegister(args: string[]): Promise<void> {
 
 async function cliUnregister(args: string[]): Promise<void> {
   if (args.length < 1) {
-    throw new Error('Usage: piscord unregister <channel-id>');
+    throw new Error('Usage: pitag unregister <channel-id>');
   }
 
   await withDb(({ unregisterChannel }) => {
-    const jid = toDiscordChannelJid(args[0]);
+    const jid = toSlackChannelJid(args[0]);
     const ok = unregisterChannel(jid);
     if (ok) {
       console.log(`Unregistered channel: ${jid}`);
@@ -187,7 +193,7 @@ async function cliArchive(args: string[]): Promise<void> {
       await cliArchiveCleanup(subArgs);
       return;
     default:
-      throw new Error('Usage: piscord archive <list|cleanup [--dry-run]>');
+      throw new Error('Usage: pitag archive <list|cleanup [--dry-run]>');
   }
 }
 
@@ -211,7 +217,7 @@ async function cliTask(args: string[]): Promise<void> {
       await cliDisableTask(subArgs);
       return;
     default:
-      throw new Error('Usage: piscord task <add|list|remove|enable|disable> [options]');
+      throw new Error('Usage: pitag task <add|list|remove|enable|disable> [options]');
   }
 }
 
@@ -231,7 +237,7 @@ async function cliListChannels(): Promise<void> {
 }
 
 async function cliSend(args: string[]): Promise<void> {
-  const usage = 'Usage: piscord send --channel <jid> [--text <message>] [--file <path> ...]';
+  const usage = 'Usage: pitag send --channel <jid> [--text <message>] [--file <path> ...]';
   let channel: string | undefined;
   let text: string | undefined;
   const files: string[] = [];
@@ -269,9 +275,9 @@ async function cliSend(args: string[]): Promise<void> {
     throw new Error(`${usage}\nAt least one of --text or --file is required.`);
   }
 
-  const { sendFilesToDiscord } = await import('../discord/send.js');
-  const channelJid = toDiscordChannelJid(channel);
-  const result = await sendFilesToDiscord({ channelJid, text, files });
+  const { sendFilesToSlack } = await import('../slack/send.js');
+  const channelJid = toSlackChannelJid(channel);
+  const result = await sendFilesToSlack({ channelJid, text, files });
   if (result.sentFiles === 0) {
     console.log(`Sent message to ${channelJid}`);
     return;
@@ -294,7 +300,7 @@ async function cliAddTask(args: string[]): Promise<void> {
       name: options.name,
       type: options.type,
       schedule: options.schedule,
-      channelJid: toDiscordChannelJid(options.channel),
+      channelJid: toSlackChannelJid(options.channel),
       prompt: options.prompt,
       createdBy: 'cli',
       nextRunAt,
@@ -327,7 +333,7 @@ async function cliListTasks(): Promise<void> {
 }
 
 async function cliRemoveTask(args: string[]): Promise<void> {
-  const id = parseTaskId(args[0], 'Usage: piscord task remove <id>');
+  const id = parseTaskId(args[0], 'Usage: pitag task remove <id>');
 
   await withDb(({ removeScheduledTask }) => {
     const removed = removeScheduledTask(id);
@@ -336,7 +342,7 @@ async function cliRemoveTask(args: string[]): Promise<void> {
 }
 
 async function cliEnableTask(args: string[]): Promise<void> {
-  const id = parseTaskId(args[0], 'Usage: piscord task enable <id>');
+  const id = parseTaskId(args[0], 'Usage: pitag task enable <id>');
 
   await withDb(({ enableScheduledTask }) => {
     const enabled = enableScheduledTask(id);
@@ -345,7 +351,7 @@ async function cliEnableTask(args: string[]): Promise<void> {
 }
 
 async function cliDisableTask(args: string[]): Promise<void> {
-  const id = parseTaskId(args[0], 'Usage: piscord task disable <id>');
+  const id = parseTaskId(args[0], 'Usage: pitag task disable <id>');
 
   await withDb(({ disableScheduledTask }) => {
     const disabled = disableScheduledTask(id);
@@ -379,7 +385,7 @@ async function cliArchiveCleanup(args: string[]): Promise<void> {
   const dryRun = args.includes('--dry-run');
   const unknownArgs = args.filter((arg) => arg !== '--dry-run');
   if (unknownArgs.length > 0) {
-    throw new Error('Usage: piscord archive cleanup [--dry-run]');
+    throw new Error('Usage: pitag archive cleanup [--dry-run]');
   }
 
   const [{ cleanupArchivedSessions }, { config }] = await Promise.all([
@@ -415,14 +421,14 @@ async function reportError(command: string | undefined, err: unknown): Promise<v
   const message = errorMessage(err);
 
   if (command === 'start') {
-    const [{ closeDb }, { stopDiscord }, { logger }] = await Promise.all([
+    const [{ closeDb }, { stopSlack }, { logger }] = await Promise.all([
       import('../db.js'),
-      import('../discord/client.js'),
+      import('../slack/client.js'),
       import('../logger.js'),
     ]);
 
     logger.fatal({ err: message }, 'Gateway exited with error');
-    stopDiscord();
+    stopSlack();
     closeDb();
     return;
   }
@@ -461,7 +467,7 @@ async function maybeRunFirstTimeSetup(): Promise<boolean> {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!interactive) {
     throw new Error(
-      `No config found at ${configPath}. Run "piscord setup" first, or set PIDG_CONFIG to point to your config file.`,
+      `No config found at ${configPath}. Run "pitag setup" first, or set PITAG_CONFIG to point to your config file.`,
     );
   }
 
@@ -600,14 +606,14 @@ function parseTaskAddOptions(args: string[]): {
         break;
       default:
         throw new Error(
-          'Usage: piscord task add --name <n> --schedule <cron|iso> --channel <jid> --prompt <text> [--once]',
+          'Usage: pitag task add --name <n> --schedule <cron|iso> --channel <jid> --prompt <text> [--once]',
         );
     }
   }
 
   if (!options.name || !options.schedule || !options.channel || !options.prompt) {
     throw new Error(
-      'Usage: piscord task add --name <n> --schedule <cron|iso> --channel <jid> --prompt <text> [--once]',
+      'Usage: pitag task add --name <n> --schedule <cron|iso> --channel <jid> --prompt <text> [--once]',
     );
   }
 
@@ -648,8 +654,9 @@ function formatChannelSummary(channel: RegisteredChannel): string {
   return `  ${channel.jid}  ${channel.name}  [${flags}]  folder=${channel.folder}${overrides ? ` ${overrides}` : ''}`;
 }
 
-function toDiscordChannelJid(channelId: string): string {
-  return channelId.startsWith('dc:') ? channelId : `dc:${channelId}`;
+function toSlackChannelJid(channelId: string): string {
+  // Accept bare Slack channel IDs (C…/G…/D…) as well as already-prefixed jids.
+  return channelId.startsWith('sl:') ? channelId : `sl:${channelId}`;
 }
 
 if (isDirectExecution()) {

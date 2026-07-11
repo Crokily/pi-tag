@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../src/slack/client.js', () => ({
+  sendResponse: vi.fn().mockResolvedValue(true),
+  setBusy: vi.fn().mockResolvedValue(undefined),
+}));
+
 const originalDbPath = process.env.DB_PATH;
 
 let abortChannelTask!: (jid: string) => { aborted: boolean; cleared: number };
@@ -29,7 +34,7 @@ afterAll(() => {
 
 describe('abortChannelTask', () => {
   it('returns aborted=false and cleared=0 when no task is active', () => {
-    const result = abortChannelTask('dc:nonexistent');
+    const result = abortChannelTask('sl:nonexistent');
     expect(result.aborted).toBe(false);
     expect(result.cleared).toBe(0);
   });

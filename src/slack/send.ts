@@ -1,8 +1,7 @@
 import { statSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
-import { AttachmentBuilder, Client, GatewayIntentBits } from 'discord.js';
+import { WebClient } from '@slack/web-api';
 import { config } from '../config.js';
+import { uploadFilesExternal } from './files.js';
 
 export interface SendRequest {
   channelJid: string;
@@ -12,7 +11,7 @@ export interface SendRequest {
 
 export function normalizeChannelJid(input: string): string {
   const value = input.trim();
-  return value.startsWith('dc:') ? value : `dc:${value}`;
+  return value.startsWith('sl:') ? value : `sl:${value}`;
 }
 
 export function validateSendRequest(
@@ -46,7 +45,7 @@ export function validateSendRequest(
   }
 }
 
-export async function sendFilesToDiscord(request: SendRequest): Promise<{ sentFiles: number }> {
+export async function sendFilesToSlack(request: SendRequest): Promise<{ sentFiles: number }> {
   validateSendRequest(request, {
     maxAttachmentBytes: config.maxAttachmentBytes,
     fileStat: (filePath) => statSync(filePath),
@@ -54,31 +53,20 @@ export async function sendFilesToDiscord(request: SendRequest): Promise<{ sentFi
 
   const channelJid = normalizeChannelJid(request.channelJid);
   const channelId = channelJid.slice(3);
-  const attachments = await Promise.all(
-    request.files.map(
-      async (filePath) =>
-        new AttachmentBuilder(await readFile(filePath), { name: basename(filePath) }),
-    ),
-  );
+  const text = request.text?.trim();
 
-  const client = new Client({
-    intents: [GatewayIntentBits.Guilds],
-  });
+  // Pure Web API: no Socket Mode connection is needed to post outbound.
+  const client = new WebClient(config.slackBotToken);
 
-  try {
-    await client.login(config.discordToken);
-    const channel = await client.channels.fetch(channelId);
-
-    if (!channel || !channel.isTextBased() || !('send' in channel)) {
-      throw new Error(`Channel not found or not text-based: ${channelJid}`);
-    }
-
-    await channel.send({
-      content: request.text || undefined,
-      ...(attachments.length > 0 ? { files: attachments } : {}),
-    });
-    return { sentFiles: attachments.length };
-  } finally {
-    client.destroy();
+  if (request.files.length === 0) {
+    // Text-only; validateSendRequest guarantees text is present here.
+    await client.chat.postMessage({ channel: channelId, markdown_text: text ?? '' });
+    return { sentFiles: 0 };
   }
+
+  return uploadFilesExternal(
+    client,
+    request.files.map((filePath) => ({ filePath })),
+    { channelId, initialComment: text || undefined },
+  );
 }

@@ -1,5 +1,5 @@
 /**
- * Media handling — download Discord attachments to disk for pi @file processing.
+ * Media handling — download Slack attachments to disk for pi @file processing.
  *
  * The gateway acts as a pure relay: download to disk, pass path to pi via @file,
  * let pi decide how to handle each file type natively.
@@ -11,7 +11,7 @@ import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { type AttachmentMeta } from '../discord/attachments.js';
+import { type AttachmentMeta } from '../types.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { resolveChannelMediaMessageDir } from './path.js';
@@ -35,12 +35,17 @@ function mediaTtlMs(): number {
 /**
  * Download all attachments to a per-message directory under the channel session.
  * Returns the list of successfully downloaded files.
+ *
+ * Slack serves attachments from `url_private`, which requires the bot token as
+ * a Bearer header. When no explicit `headers` are passed, an Authorization
+ * header is injected automatically for Slack-hosted URLs (config bot token).
  */
 export async function downloadAttachments(
   attachments: AttachmentMeta[],
   channelFolder: string,
   messageId: string,
   signal?: AbortSignal,
+  headers?: Record<string, string>,
 ): Promise<DownloadedFile[]> {
   if (attachments.length === 0) return [];
 
@@ -55,7 +60,7 @@ export async function downloadAttachments(
     const filePath = join(mediaDir, fileName);
 
     try {
-      await streamAttachmentToFile(att, filePath, signal);
+      await streamAttachmentToFile(att, filePath, signal, headers);
       const fileStats = await stat(filePath);
 
       results.push({
@@ -83,14 +88,37 @@ function sanitizeFilename(name: string): string {
   return sanitized || 'file';
 }
 
+/**
+ * Slack `url_private` downloads require `Authorization: Bearer <xoxb token>`.
+ * Only inject the token for Slack-hosted URLs so it never leaks to other hosts.
+ */
+function defaultDownloadHeaders(url: string): Record<string, string> | undefined {
+  if (!config.slackBotToken) return undefined;
+
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return undefined;
+  }
+
+  if (hostname === 'slack.com' || hostname.endsWith('.slack.com')) {
+    return { Authorization: `Bearer ${config.slackBotToken}` };
+  }
+
+  return undefined;
+}
+
 async function streamAttachmentToFile(
   attachment: AttachmentMeta,
   filePath: string,
   parentSignal?: AbortSignal,
+  headers?: Record<string, string>,
 ): Promise<void> {
   const timeoutSignal = AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS);
   const signal = parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal;
-  const res = await fetch(attachment.url, { signal });
+  const requestHeaders = headers ?? defaultDownloadHeaders(attachment.url);
+  const res = await fetch(attachment.url, { signal, headers: requestHeaders });
 
   if (!res.ok) {
     throw new Error(`Attachment download failed with status ${res.status}`);

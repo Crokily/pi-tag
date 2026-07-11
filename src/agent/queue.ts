@@ -2,7 +2,7 @@
  * Message processing loop.
  *
  * Polls SQLite for pending messages, dispatches to pi agent, sends response
- * back to Discord. Enforces per-channel serial processing and global
+ * back to Slack. Enforces per-channel serial processing and global
  * concurrency limit.
  */
 
@@ -18,8 +18,9 @@ import {
   logMessage,
   getChannel,
 } from '../db.js';
+import type { QueuedMessage } from '../types.js';
 import { invokeAgent } from './invoke.js';
-import { sendResponse, setTyping } from '../discord/client.js';
+import { sendResponse, setBusy } from '../slack/client.js';
 import { computeEffectiveChannelSettings } from './channel-settings.js';
 
 /** Channels currently being processed (per-channel serial lock) */
@@ -115,14 +116,7 @@ function dispatch(): void {
     activeTaskControllers.set(msg.rowid, controller);
     activeChannelControllers.set(jid, controller);
 
-    const taskPromise = processMessage(
-      jid,
-      msg.rowid,
-      msg.sender_name,
-      msg.content,
-      controller.signal,
-      msg.attachments,
-    ).finally(() => {
+    const taskPromise = processMessage(jid, msg, controller.signal).finally(() => {
       activeChannels.delete(jid);
       activeTaskControllers.delete(msg.rowid);
       activeChannelControllers.delete(jid);
@@ -186,14 +180,9 @@ async function waitForPromise(promise: Promise<unknown>, timeoutMs: number): Pro
   return activeTaskPromises.size === 0;
 }
 
-async function processMessage(
-  jid: string,
-  rowid: number,
-  senderName: string,
-  content: string,
-  signal: AbortSignal,
-  attachments?: string | null,
-): Promise<void> {
+async function processMessage(jid: string, msg: QueuedMessage, signal: AbortSignal): Promise<void> {
+  const { rowid, sender_name: senderName, content } = msg;
+
   const channel = getChannel(jid);
   if (!channel) {
     logger.warn({ jid }, 'Channel disappeared during processing');
@@ -203,10 +192,16 @@ async function processMessage(
 
   logger.info({ jid, senderName, len: content.length }, 'Processing message');
 
-  const typingLoop = createTypingLoop(jid);
+  // Slack has no bot typing indicator; flag the triggering message with a busy
+  // reaction instead. No-op when the message has no ts (e.g. scheduler runs).
+  const busyCtx = { ts: msg.event_ts ?? undefined };
+  await setBusy(jid, true, busyCtx);
+
+  // Reply into the triggering message's thread when it lived in one.
+  const replyCtx = { threadTs: msg.thread_ts ?? undefined };
 
   try {
-    const prompt = `[Discord user: ${senderName}]\n${content}`;
+    const prompt = `[Slack user: ${senderName}]\n${content}`;
 
     logMessage(jid, 'user', content);
 
@@ -217,7 +212,7 @@ async function processMessage(
       thinking: effective.hasManagedThinking ? effective.effectiveThinking : undefined,
       cwd: effective.effectiveCwd,
       signal,
-      attachments,
+      attachments: msg.attachments,
     });
 
     if (signal.aborted) {
@@ -227,10 +222,10 @@ async function processMessage(
     }
 
     if (result.ok) {
-      const sent = await sendResponse(jid, result.text);
+      const sent = await sendResponse(jid, result.text, replyCtx);
       if (!sent) {
         markMessageFailed(rowid);
-        logger.warn({ jid }, 'Agent response generated but could not be delivered to Discord');
+        logger.warn({ jid }, 'Agent response generated but could not be delivered to Slack');
         return;
       }
 
@@ -241,7 +236,7 @@ async function processMessage(
     }
 
     const errMsg = `⚠️ Agent error: ${result.error?.slice(0, 300) || 'unknown error'}`;
-    await sendResponse(jid, errMsg);
+    await sendResponse(jid, errMsg, replyCtx);
     markMessageFailed(rowid);
     logger.warn({ jid, error: result.error }, 'Agent returned error');
   } catch (err: any) {
@@ -254,58 +249,11 @@ async function processMessage(
     logger.error({ jid, err: err.message }, 'processMessage failed');
     markMessageFailed(rowid);
     try {
-      await sendResponse(jid, `⚠️ Internal error: ${err.message?.slice(0, 200)}`);
+      await sendResponse(jid, `⚠️ Internal error: ${err.message?.slice(0, 200)}`, replyCtx);
     } catch {
       // Nothing else to do here.
     }
   } finally {
-    await typingLoop.stop();
+    await setBusy(jid, false, busyCtx);
   }
-}
-
-function createTypingLoop(jid: string): { stop: () => Promise<void> } {
-  let typingAlive = true;
-  let cancelTypingDelay = () => {};
-
-  const loop = (async () => {
-    while (typingAlive) {
-      await setTyping(jid);
-      if (!typingAlive) break;
-
-      const delay = cancellableSleep(8000);
-      cancelTypingDelay = delay.cancel;
-      await delay.promise;
-      cancelTypingDelay = () => {};
-    }
-  })();
-
-  return {
-    stop: async () => {
-      typingAlive = false;
-      cancelTypingDelay();
-      await loop;
-    },
-  };
-}
-
-function cancellableSleep(ms: number): { promise: Promise<void>; cancel: () => void } {
-  let finished = false;
-  let timer: NodeJS.Timeout | undefined;
-  let resolvePromise: () => void = () => {};
-
-  const promise = new Promise<void>((resolve) => {
-    resolvePromise = () => {
-      if (finished) return;
-      finished = true;
-      if (timer) clearTimeout(timer);
-      resolve();
-    };
-
-    timer = setTimeout(resolvePromise, ms);
-  });
-
-  return {
-    promise,
-    cancel: resolvePromise,
-  };
 }

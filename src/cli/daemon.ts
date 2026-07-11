@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defaultDataDir, resolveConfigPath } from '../config.js';
 
-const SERVICE_NAME = 'pi-discord-gateway';
+const SERVICE_NAME = 'pitag';
 const DATA_DIR = defaultDataDir();
 
 const isLinux = () => process.platform === 'linux';
@@ -59,7 +59,7 @@ function linuxInstall(): void {
     SYSTEMD_SERVICE_PATH,
     [
       '[Unit]',
-      'Description=Pi Discord Gateway',
+      'Description=pi-tag Slack Gateway',
       'After=network-online.target',
       'Wants=network-online.target',
       '',
@@ -71,7 +71,7 @@ function linuxInstall(): void {
       'RestartSec=10',
       'StandardOutput=journal',
       'StandardError=journal',
-      `Environment=PIDG_CONFIG=${configPath}`,
+      `Environment=PITAG_CONFIG=${configPath}`,
       '',
       '[Install]',
       'WantedBy=default.target',
@@ -217,7 +217,7 @@ function buildPlist(options: {
     '',
     '  <key>EnvironmentVariables</key>',
     '  <dict>',
-    '    <key>PIDG_CONFIG</key>',
+    '    <key>PITAG_CONFIG</key>',
     `    <string>${esc(configPath)}</string>`,
     '    <key>PATH</key>',
     `    <string>${esc(pathEnv)}</string>`,

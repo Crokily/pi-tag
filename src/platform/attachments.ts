@@ -1,9 +1,11 @@
-export interface AttachmentMeta {
-  url: string;
-  name: string;
-  contentType: string;
-  size: number;
-}
+/**
+ * Platform-neutral attachment limit selection.
+ *
+ * Pure functions used by the platform layer before enqueueing a message:
+ * filter inbound attachments against per-file and total size limits.
+ */
+
+import { type AttachmentMeta } from '../types.js';
 
 export interface AttachmentLimits {
   maxFileBytes: number;

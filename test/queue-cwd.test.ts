@@ -3,19 +3,19 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { invokeAgentMock, sendResponseMock, setTypingMock } = vi.hoisted(() => ({
+const { invokeAgentMock, sendResponseMock, setBusyMock } = vi.hoisted(() => ({
   invokeAgentMock: vi.fn(),
   sendResponseMock: vi.fn(),
-  setTypingMock: vi.fn(),
+  setBusyMock: vi.fn(),
 }));
 
 vi.mock('../src/agent/invoke.js', () => ({
   invokeAgent: invokeAgentMock,
 }));
 
-vi.mock('../src/discord/client.js', () => ({
+vi.mock('../src/slack/client.js', () => ({
   sendResponse: sendResponseMock,
-  setTyping: setTypingMock,
+  setBusy: setBusyMock,
 }));
 
 const originalEnv = { ...process.env };
@@ -56,10 +56,20 @@ describe('queue cwd selection', () => {
     const call = await runQueuedMessage('');
     expect(call?.cwd).toBe('/global/project');
   });
+
+  it('passes thread context to sendResponse and toggles the busy indicator', async () => {
+    await runQueuedMessage('');
+
+    expect(sendResponseMock).toHaveBeenCalledWith('sl:C123', 'done', {
+      threadTs: '1751954000.000100',
+    });
+    expect(setBusyMock).toHaveBeenNthCalledWith(1, 'sl:C123', true, { ts: '1751955000.000100' });
+    expect(setBusyMock).toHaveBeenNthCalledWith(2, 'sl:C123', false, { ts: '1751955000.000100' });
+  });
 });
 
 async function runQueuedMessage(cwdOverride: string): Promise<{ cwd?: string } | undefined> {
-  const tempDir = mkdtempSync(join(tmpdir(), 'pidg-queue-cwd-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'pitag-queue-cwd-'));
   tempDirs.push(tempDir);
 
   process.env.DB_PATH = ':memory:';
@@ -70,7 +80,7 @@ async function runQueuedMessage(cwdOverride: string): Promise<{ cwd?: string } |
 
   invokeAgentMock.mockResolvedValue({ ok: true, text: 'done' });
   sendResponseMock.mockResolvedValue(true);
-  setTypingMock.mockResolvedValue(undefined);
+  setBusyMock.mockResolvedValue(undefined);
 
   vi.resetModules();
   const db = await import('../src/db.js');
@@ -80,9 +90,9 @@ async function runQueuedMessage(cwdOverride: string): Promise<{ cwd?: string } |
 
   try {
     db.registerChannel({
-      jid: 'dc:123',
+      jid: 'sl:C123',
       name: 'queue test',
-      folder: 'ch_123',
+      folder: 'ch_C123',
       requiresTrigger: false,
       isMain: false,
       modelOverride: '',
@@ -90,11 +100,13 @@ async function runQueuedMessage(cwdOverride: string): Promise<{ cwd?: string } |
       cwdOverride,
     });
     db.enqueueMessage({
-      channelJid: 'dc:123',
+      channelJid: 'sl:C123',
       sender: 'u_1',
       senderName: 'Alice',
       content: 'hello',
       timestamp: new Date().toISOString(),
+      eventTs: '1751955000.000100',
+      threadTs: '1751954000.000100',
     });
 
     queue.startProcessingLoop();

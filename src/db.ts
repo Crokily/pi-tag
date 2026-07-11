@@ -89,6 +89,8 @@ export function initDb(): void {
   ensureTableColumn('channels', 'thinking_override', "text not null default ''");
   ensureTableColumn('channels', 'cwd_override', "text not null default ''");
   ensureTableColumn('message_queue', 'attachments', 'text');
+  ensureTableColumn('message_queue', 'event_ts', 'text');
+  ensureTableColumn('message_queue', 'thread_ts', 'text');
 
   logger.info({ path: config.dbPath }, 'Database initialized');
 }
@@ -221,11 +223,13 @@ export function enqueueMessage(msg: {
   content: string;
   timestamp: string;
   attachments?: string | null;
+  eventTs?: string | null;
+  threadTs?: string | null;
 }): void {
   db.prepare(
     `
-    insert into message_queue (channel_jid, sender, sender_name, content, timestamp, attachments)
-    values (?, ?, ?, ?, ?, ?)
+    insert into message_queue (channel_jid, sender, sender_name, content, timestamp, attachments, event_ts, thread_ts)
+    values (?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     msg.channelJid,
@@ -234,6 +238,8 @@ export function enqueueMessage(msg: {
     msg.content,
     msg.timestamp,
     msg.attachments ?? null,
+    msg.eventTs ?? null,
+    msg.threadTs ?? null,
   );
 }
 
@@ -252,7 +258,7 @@ export function claimNextMessage(channelJid: string): QueuedMessage | undefined 
     set status = 'processing'
     where rowid = (select rowid from next_message)
       and status = 'pending'
-    returning rowid, channel_jid, sender, sender_name, content, timestamp, status, attachments
+    returning rowid, channel_jid, sender, sender_name, content, timestamp, status, attachments, event_ts, thread_ts
   `,
     )
     .get(channelJid) as QueuedMessage | undefined;

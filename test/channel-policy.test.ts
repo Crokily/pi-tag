@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const originalCwd = process.cwd();
 const originalEnv = { ...process.env };
 const tempDirs: string[] = [];
-const CONFIG_ENV_KEYS = ['CHANNEL_POLICY', 'EXCLUDED_CHANNELS', 'HOME', 'PIDG_CONFIG'];
+const CONFIG_ENV_KEYS = ['CHANNEL_POLICY', 'EXCLUDED_CHANNELS', 'HOME', 'PITAG_CONFIG'];
 
 afterEach(() => {
   vi.resetModules();
@@ -31,7 +31,7 @@ describe('channel policy config', () => {
     const { homeDir, workDir } = createIsolatedDirs();
     process.chdir(workDir);
     process.env.HOME = homeDir;
-    delete process.env.PIDG_CONFIG;
+    delete process.env.PITAG_CONFIG;
     delete process.env.CHANNEL_POLICY;
     delete process.env.EXCLUDED_CHANNELS;
 
@@ -44,7 +44,7 @@ describe('channel policy config', () => {
     const { homeDir, workDir } = createIsolatedDirs();
     process.chdir(workDir);
     process.env.HOME = homeDir;
-    delete process.env.PIDG_CONFIG;
+    delete process.env.PITAG_CONFIG;
     delete process.env.CHANNEL_POLICY;
     process.env.EXCLUDED_CHANNELS = '123, 456, 789';
 
@@ -62,12 +62,13 @@ describe('buildConfigFile channel policy settings', () => {
   it('includes channel policy and excluded channels placeholders', async () => {
     const { buildConfigFile } = await import('../src/cli/setup.js');
     const text = buildConfigFile({
-      token: 'discord-token',
+      botToken: 'xoxb-test-token',
+      appToken: 'xapp-test-token',
       triggerName: 'PiBot',
       workingDir: '/workspace/project',
       channelPolicy: 'open-trigger',
-      sessionsDir: '/var/lib/pi-discord/sessions',
-      dbPath: '/var/lib/pi-discord/gateway.db',
+      sessionsDir: '/var/lib/pi-tag/sessions',
+      dbPath: '/var/lib/pi-tag/gateway.db',
     });
 
     expect(text).toContain('CHANNEL_POLICY=open-trigger');
@@ -76,8 +77,8 @@ describe('buildConfigFile channel policy settings', () => {
 });
 
 function createIsolatedDirs(): { homeDir: string; workDir: string } {
-  const homeDir = mkdtempSync(join(tmpdir(), 'pidg-channel-policy-home-'));
-  const workDir = mkdtempSync(join(tmpdir(), 'pidg-channel-policy-work-'));
+  const homeDir = mkdtempSync(join(tmpdir(), 'pitag-channel-policy-home-'));
+  const workDir = mkdtempSync(join(tmpdir(), 'pitag-channel-policy-work-'));
   tempDirs.push(homeDir, workDir);
   return { homeDir, workDir };
 }

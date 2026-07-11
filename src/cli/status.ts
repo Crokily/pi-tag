@@ -2,29 +2,32 @@ import { execSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { config, resolveConfigPath } from '../config.js';
+import { WebClient } from '@slack/web-api';
+import { config, resolveConfigPath, validateSlackTokens } from '../config.js';
 import { closeDb, getAllChannels, initDb } from '../db.js';
 
 const AUTH_PATH = resolve(homedir(), '.pi/agent/auth.json');
-const SERVICE_NAME = 'pi-discord-gateway';
+const SERVICE_NAME = 'pitag';
 
-export function runStatus(): void {
+export async function runStatus(): Promise<void> {
   const configPath = resolveConfigPath();
   const piPath = findExecutable('pi');
   const piVersion = piPath ? readCommandOutput('pi --version') : undefined;
   const authStatus = existsSync(AUTH_PATH);
+  const slackAuth = await getSlackAuthStatus();
   const serviceStatus = getServiceStatus();
   const channelCount = getRegisteredChannelCount();
   const sessionsPath = resolve(config.sessionsDir);
   const sessionFolderCount = countSessionFolders(sessionsPath);
 
   const lines = [
-    'piscord status',
+    'pitag status',
     '',
     `Pi binary: ${piPath || 'not found'}`,
     `Pi version: ${piVersion || 'unknown'}`,
     `Pi auth: ${authStatus ? `found (${AUTH_PATH})` : `missing (${AUTH_PATH})`}`,
     `Pi working dir: ${config.piCwd}`,
+    `Slack auth: ${slackAuth}`,
     `Config path: ${configPath}`,
     `Gateway service: ${serviceStatus}`,
     `Database: ${config.dbPath}`,
@@ -34,6 +37,27 @@ export function runStatus(): void {
   ];
 
   console.log(lines.join('\n'));
+}
+
+async function getSlackAuthStatus(): Promise<string> {
+  const problems = validateSlackTokens(config);
+  if (problems.length > 0) {
+    const hints = [...problems];
+    if (!config.slackAppToken) {
+      hints.push(
+        'Generate an app-level token with the connections:write scope (Socket Mode) at api.slack.com/apps.',
+      );
+    }
+    return `not configured — ${hints.join(' ')}`;
+  }
+
+  try {
+    const auth = await new WebClient(config.slackBotToken).auth.test();
+    return `ok (team ${auth.team ?? 'unknown'}, bot user ${auth.user ?? auth.user_id ?? 'unknown'})`;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `failed (${message}) — check SLACK_BOT_TOKEN, and the Socket Mode app token (SLACK_APP_TOKEN)`;
+  }
 }
 
 function getServiceStatus(): string {

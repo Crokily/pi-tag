@@ -1,14 +1,14 @@
 {
-  "name": "piscord",
-  "version": "1.6.1",
-  "description": "Lightweight Discord gateway for pi coding agent",
+  "name": "pi-tag",
+  "version": "0.1.0",
+  "description": "Lightweight Slack gateway for pi coding agent",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Crokily/pi-discord-gateway.git"
+    "url": "git+https://github.com/Crokily/pi-tag.git"
   },
   "keywords": [
-    "discord",
+    "slack",
     "bot",
     "pi",
     "coding-agent",
@@ -18,7 +18,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "piscord": "dist/cli/index.js"
+    "pitag": "dist/cli/index.js"
   },
   "files": [
     "dist",
@@ -49,17 +49,18 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
+    "@slack/bolt": "^4.7.3",
+    "@slack/web-api": "^7.19.0",
     "better-sqlite3": "^12.0.0",
     "croner": "^10.0.1",
-    "discord.js": "^14.18.0",
     "dotenv": "^16.5.0",
     "minimatch": "^10.0.1",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.74.0",
-    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-ai": "^0.80.6",
+    "@earendil-works/pi-coding-agent": "^0.80.6",
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.0",

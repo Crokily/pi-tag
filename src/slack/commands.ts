@@ -1,11 +1,13 @@
-import {
-  MessageFlags,
-  SlashCommandBuilder,
-  type AutocompleteInteraction,
-  type ChatInputCommandInteraction,
-  type Client,
-  type InteractionReplyOptions,
-} from 'discord.js';
+/**
+ * /pi slash command.
+ *
+ * Slack has no per-command autocomplete or typed subcommands, so a single
+ * global /pi command carries text subcommands:
+ *   status | model <ref> | models | reset-model | thinking <level> | new | stop
+ * Replies are ephemeral (respond() posts to the command's response_url).
+ */
+
+import type { App, RespondFn, SlashCommand } from '@slack/bolt';
 import {
   getChannelSessionStatus,
   type ChannelSessionStatus,
@@ -24,10 +26,7 @@ import {
 } from '../db.js';
 import { logger } from '../logger.js';
 import {
-  autocompleteModels,
-  hasCachedModelCatalog,
   isThinkingLevel,
-  listAvailableModels,
   listSelectableModels,
   resolveModelReference,
   resolveThinkingForModel,
@@ -41,155 +40,80 @@ import {
 } from '../agent/channel-settings.js';
 import { abortChannelTask, isChannelProcessing } from '../agent/queue.js';
 import { rotateChannelSessionDir } from '../session/path.js';
-import type { RegisteredChannel } from '../types.js';
+import { THINKING_LEVELS, type RegisteredChannel } from '../types.js';
 
-const PI_COMMAND = new SlashCommandBuilder()
-  .setName('pi')
-  .setDescription('Inspect or change pi model settings for this channel')
-  .addSubcommand((sub) =>
-    sub
-      .setName('status')
-      .setDescription('Show the current model and thinking configuration for this channel'),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName('model')
-      .setDescription('Set the default model for this channel')
-      .addStringOption((option) =>
-        option
-          .setName('model')
-          .setDescription("Choose one of pi's currently available models")
-          .setRequired(true)
-          .setAutocomplete(true),
-      ),
-  )
-  .addSubcommand((sub) =>
-    sub.setName('reset-model').setDescription("Reset this channel to the gateway's default model"),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName('thinking')
-      .setDescription('Set the default thinking level for this channel')
-      .addStringOption((option) =>
-        option
-          .setName('level')
-          .setDescription('Thinking level')
-          .setRequired(true)
-          .addChoices(
-            { name: 'off', value: 'off' },
-            { name: 'minimal', value: 'minimal' },
-            { name: 'low', value: 'low' },
-            { name: 'medium', value: 'medium' },
-            { name: 'high', value: 'high' },
-            { name: 'xhigh', value: 'xhigh' },
-          ),
-      ),
-  )
-  .addSubcommand((sub) =>
-    sub.setName('new').setDescription('Start a fresh pi session for this channel'),
-  )
-  .addSubcommand((sub) =>
-    sub
-      .setName('stop')
-      .setDescription('Abort the current task and clear the queue for this channel'),
-  );
+export function registerCommands(app: App): void {
+  app.command('/pi', async ({ command, ack, respond }) => {
+    // Slash commands must be acked within 3s; respond() stays valid for 30min.
+    await ack();
 
-export async function registerGlobalCommands(client: Client<true>): Promise<void> {
-  await client.application.commands.set([PI_COMMAND.toJSON()]);
-  logger.info('Registered global slash commands');
-}
+    const [rawSubcommand = '', ...args] = command.text.trim().split(/\s+/).filter(Boolean);
+    const subcommand = rawSubcommand.toLowerCase();
 
-export async function handleAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
-  if (interaction.commandName !== 'pi') return;
-  if (interaction.options.getSubcommand() !== 'model') return;
-  if (interaction.options.getFocused(true).name !== 'model') return;
-
-  const channel = getChannel(`dc:${interaction.channelId}`);
-  if (!channel) {
-    await interaction.respond([]);
-    return;
-  }
-
-  const cwd = channel.cwdOverride || config.piCwd;
-  if (!hasCachedModelCatalog(cwd)) {
-    await interaction.respond([]);
-    setImmediate(() => {
-      try {
-        listAvailableModels({ forceRefresh: true, cwd });
-      } catch (err: any) {
-        logger.warn({ cwd, err: err.message }, 'Failed to warm model catalog');
+    try {
+      switch (subcommand) {
+        case 'status':
+          await handleStatus(command, respond);
+          return;
+        case 'model':
+          await handleModelSet(command, respond, args.join(' '));
+          return;
+        case 'models':
+          await handleModels(command, respond);
+          return;
+        case 'reset-model':
+          await handleModelReset(command, respond);
+          return;
+        case 'thinking':
+          await handleThinkingSet(command, respond, args[0] ?? '');
+          return;
+        case 'new':
+          await handleNew(command, respond);
+          return;
+        case 'stop':
+          await handleStop(command, respond);
+          return;
+        case '':
+          await respond(usageMessage());
+          return;
+        default:
+          await respond(`Unknown subcommand: ${subcommand}\n${usageMessage()}`);
       }
-    });
-    return;
-  }
-
-  const focused = interaction.options.getFocused();
-  const models = await autocompleteModels(focused, 25, { allowStale: true, cwd });
-  const matches = models.map((model) => ({
-    name: toModelChoiceName(model),
-    value: model.ref,
-  }));
-
-  await interaction.respond(matches);
+    } catch (err: any) {
+      logger.error({ err: err.message, command: '/pi', subcommand }, 'Slash command failed');
+      try {
+        await respond(`⚠️ ${err.message}`);
+      } catch {
+        // response_url expired or unreachable; nothing else to do.
+      }
+    }
+  });
+  logger.info('Registered /pi slash command handler');
 }
 
-export async function handleChatCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-  if (interaction.commandName !== 'pi') return;
-
-  const subcommand = interaction.options.getSubcommand();
-
-  try {
-    switch (subcommand) {
-      case 'status':
-        await handleStatus(interaction);
-        return;
-      case 'model':
-        await handleModelSet(interaction);
-        return;
-      case 'reset-model':
-        await handleModelReset(interaction);
-        return;
-      case 'thinking':
-        await handleThinkingSet(interaction);
-        return;
-      case 'new':
-        await handleNew(interaction);
-        return;
-      case 'stop':
-        await handleStop(interaction);
-        return;
-      default:
-        await interaction.reply(reply(`Unknown subcommand: ${subcommand}`, interaction));
-    }
-  } catch (err: any) {
-    logger.error(
-      { err: err.message, command: interaction.commandName, subcommand },
-      'Slash command failed',
-    );
-    const payload = reply(`⚠️ ${err.message}`, interaction);
-    if (interaction.replied) {
-      await interaction.followUp(payload);
-    } else if (interaction.deferred) {
-      await interaction.editReply({ content: payload.content });
-    } else {
-      await interaction.reply(payload);
-    }
-  }
+function usageMessage(): string {
+  return [
+    'Usage: `/pi <subcommand>`',
+    '• `status` — show the current model and thinking configuration',
+    '• `model <ref>` — set the default model for this channel',
+    '• `models` — list the models pi can currently use',
+    '• `reset-model` — reset this channel to the gateway default model',
+    `• \`thinking <level>\` — set thinking level (${THINKING_LEVELS.join('|')})`,
+    '• `new` — start a fresh pi session for this channel',
+    '• `stop` — abort the current task and clear the queue',
+  ].join('\n');
 }
 
-async function handleNew(interaction: ChatInputCommandInteraction): Promise<void> {
-  const channel = ensureManagedChannel(interaction);
+async function handleNew(command: SlashCommand, respond: RespondFn): Promise<void> {
+  const channel = ensureManagedChannel(command);
   if (!channel) {
-    await interaction.reply(reply(notRegisteredMessage(), interaction));
+    await respond(notRegisteredMessage());
     return;
   }
 
   if (isChannelProcessing(channel.jid)) {
-    await interaction.reply(
-      reply(
-        'This channel is currently processing a message. Wait for it to finish, then run /new again.',
-        interaction,
-      ),
+    await respond(
+      'This channel is currently processing a message. Wait for it to finish, then run `/pi new` again.',
     );
     return;
   }
@@ -210,17 +134,15 @@ async function handleNew(interaction: ChatInputCommandInteraction): Promise<void
     notes.push('Archived the previous session on disk.');
   }
 
-  await interaction.reply(reply(notes.join('\n'), interaction));
+  await respond(notes.join('\n'));
 }
 
-async function handleStop(interaction: ChatInputCommandInteraction): Promise<void> {
-  const jid = `dc:${interaction.channelId}`;
+async function handleStop(command: SlashCommand, respond: RespondFn): Promise<void> {
+  const jid = `sl:${command.channel_id}`;
   const result = abortChannelTask(jid);
 
   if (!result.aborted && result.cleared === 0) {
-    await interaction.reply(
-      reply('No active task or queued messages in this channel.', interaction),
-    );
+    await respond('No active task or queued messages in this channel.');
     return;
   }
 
@@ -234,42 +156,58 @@ async function handleStop(interaction: ChatInputCommandInteraction): Promise<voi
     );
   }
 
-  await interaction.reply(reply(notes.join(' '), interaction));
+  await respond(notes.join(' '));
 }
 
-async function handleStatus(interaction: ChatInputCommandInteraction): Promise<void> {
-  const channel = ensureManagedChannel(interaction);
+async function handleStatus(command: SlashCommand, respond: RespondFn): Promise<void> {
+  const channel = ensureManagedChannel(command);
   if (!channel) {
-    await interaction.reply(reply(notRegisteredMessage(), interaction));
+    await respond(notRegisteredMessage());
     return;
   }
-
-  await interaction.deferReply(
-    interaction.inGuild() ? { flags: MessageFlags.Ephemeral } : undefined,
-  );
 
   const effective = computeEffectiveChannelSettings(channel);
   const sessionStatus = await getChannelSessionStatus(channel.folder, effective.effectiveCwd);
-  await interaction.editReply({ content: buildStatusMessage(effective, sessionStatus) });
+  await respond(buildStatusMessage(effective, sessionStatus));
 }
 
-async function handleModelSet(interaction: ChatInputCommandInteraction): Promise<void> {
-  const channel = ensureManagedChannel(interaction);
-  if (!channel) {
-    await interaction.reply(reply(notRegisteredMessage(), interaction));
+async function handleModels(command: SlashCommand, respond: RespondFn): Promise<void> {
+  // Model availability can depend on the channel's working dir override.
+  const channel = getChannel(`sl:${command.channel_id}`);
+  const cwd = channel?.cwdOverride || config.piCwd;
+  const models = await listSelectableModels({ cwd });
+
+  if (models.length === 0) {
+    await respond('No models available. Check pi authentication and PI_BIN on the gateway host.');
     return;
   }
 
-  await interaction.deferReply(
-    interaction.inGuild() ? { flags: MessageFlags.Ephemeral } : undefined,
-  );
+  await respond(formatModelList(models.map(toModelChoiceName)));
+}
 
-  const selectedRef = interaction.options.getString('model', true);
+async function handleModelSet(
+  command: SlashCommand,
+  respond: RespondFn,
+  selectedRef: string,
+): Promise<void> {
+  const channel = ensureManagedChannel(command);
+  if (!channel) {
+    await respond(notRegisteredMessage());
+    return;
+  }
+
+  if (!selectedRef) {
+    await respond('Usage: `/pi model <ref>` — run `/pi models` to list available models.');
+    return;
+  }
+
   const cwd = channel.cwdOverride || config.piCwd;
   const models = await listSelectableModels({ forceRefresh: true, cwd });
   const selectedModel = resolveModelReference(selectedRef, models);
   if (!selectedModel) {
-    await interaction.editReply({ content: `Model is no longer available: ${selectedRef}` });
+    await respond(
+      `No available model matches: ${selectedRef}. Run \`/pi models\` to list available models.`,
+    );
     return;
   }
 
@@ -296,19 +234,15 @@ async function handleModelSet(interaction: ChatInputCommandInteraction): Promise
     );
   }
 
-  await interaction.editReply({ content: notes.join('\n') });
+  await respond(notes.join('\n'));
 }
 
-async function handleModelReset(interaction: ChatInputCommandInteraction): Promise<void> {
-  const channel = ensureManagedChannel(interaction);
+async function handleModelReset(command: SlashCommand, respond: RespondFn): Promise<void> {
+  const channel = ensureManagedChannel(command);
   if (!channel) {
-    await interaction.reply(reply(notRegisteredMessage(), interaction));
+    await respond(notRegisteredMessage());
     return;
   }
-
-  await interaction.deferReply(
-    interaction.inGuild() ? { flags: MessageFlags.Ephemeral } : undefined,
-  );
 
   clearChannelModelOverride(channel.jid);
 
@@ -329,28 +263,30 @@ async function handleModelReset(interaction: ChatInputCommandInteraction): Promi
     );
   }
 
-  await interaction.editReply({ content: notes.join('\n') });
+  await respond(notes.join('\n'));
 }
 
-async function handleThinkingSet(interaction: ChatInputCommandInteraction): Promise<void> {
-  const channel = ensureManagedChannel(interaction);
+async function handleThinkingSet(
+  command: SlashCommand,
+  respond: RespondFn,
+  rawLevel: string,
+): Promise<void> {
+  const channel = ensureManagedChannel(command);
   if (!channel) {
-    await interaction.reply(reply(notRegisteredMessage(), interaction));
+    await respond(notRegisteredMessage());
     return;
   }
 
-  const rawLevel = interaction.options.getString('level', true);
-  if (!isThinkingLevel(rawLevel)) {
-    await interaction.reply(reply(`Invalid thinking level: ${rawLevel}`, interaction));
+  const level = rawLevel.toLowerCase();
+  if (!isThinkingLevel(level)) {
+    await respond(
+      `Invalid thinking level: ${rawLevel || '(none)'}. Valid levels: ${THINKING_LEVELS.join(', ')}.`,
+    );
     return;
   }
-
-  await interaction.deferReply(
-    interaction.inGuild() ? { flags: MessageFlags.Ephemeral } : undefined,
-  );
 
   const effective = computeEffectiveChannelSettings(channel, { forceRefresh: true });
-  const resolution = resolveThinkingForModel(effective.modelInfo, rawLevel);
+  const resolution = resolveThinkingForModel(effective.modelInfo, level);
 
   setChannelThinkingOverride(channel.jid, resolution.effective);
 
@@ -365,19 +301,17 @@ async function handleThinkingSet(interaction: ChatInputCommandInteraction): Prom
     );
   }
 
-  await interaction.editReply({ content: notes.join('\n') });
+  await respond(notes.join('\n'));
 }
 
-function ensureManagedChannel(
-  interaction: ChatInputCommandInteraction,
-): RegisteredChannel | undefined {
-  const jid = `dc:${interaction.channelId}`;
+function ensureManagedChannel(command: SlashCommand): RegisteredChannel | undefined {
+  const jid = `sl:${command.channel_id}`;
   const channel = getChannel(jid);
   if (channel) return channel;
 
   // Allow slash commands to bootstrap DM channels, same as normal DM messages.
-  if (!interaction.guild && config.autoRegisterDMs) {
-    const reg = createDmChannel(jid, interaction.user.id, interaction.user.username);
+  if (command.channel_id.startsWith('D') && config.dmPolicy === 'open') {
+    const reg = createDmChannel(jid, command.user_id, command.user_name);
     registerChannel(reg);
     return getChannel(jid) ?? reg;
   }
@@ -387,6 +321,27 @@ function ensureManagedChannel(
 
 function notRegisteredMessage(): string {
   return 'This channel is not registered yet. Send a regular message in this channel first — the gateway will auto-register it (if channel policy is `open` or `open-trigger`).';
+}
+
+function formatModelList(lines: string[]): string {
+  // Keep the ephemeral reply within one Slack message (~4k chars).
+  const maxBodyLength = 3500;
+  let body = '';
+  let shown = 0;
+  for (const line of lines) {
+    if (body.length + line.length + 1 > maxBodyLength) break;
+    body += `${line}\n`;
+    shown += 1;
+  }
+
+  const parts = [
+    `Available models (${lines.length}) — set one with \`/pi model <ref>\`:`,
+    `\`\`\`text\n${body.trimEnd()}\n\`\`\``,
+  ];
+  if (shown < lines.length) {
+    parts.push(`…and ${lines.length - shown} more. \`/pi model <ref>\` matches fuzzily.`);
+  }
+  return parts.join('\n');
 }
 
 function buildStatusMessage(
@@ -516,11 +471,4 @@ function formatNumber(value: number): string {
 
 function formatPercent(value: number): string {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value);
-}
-
-function reply(content: string, interaction: ChatInputCommandInteraction): InteractionReplyOptions {
-  if (interaction.inGuild()) {
-    return { content, flags: MessageFlags.Ephemeral };
-  }
-  return { content };
 }

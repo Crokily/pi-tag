@@ -4,9 +4,10 @@ import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import * as clack from '@clack/prompts';
 import { listAvailableModels } from '../agent/model-catalog.js';
-import { defaultDataDir, resolveConfigPath } from '../config.js';
+import type { DmPolicy } from '../config.js';
+import { defaultDataDir, resolveConfigPath, validateSlackTokens } from '../config.js';
 
-const SERVICE_NAME = 'pi-discord-gateway';
+const SERVICE_NAME = 'pitag';
 const DEFAULT_TRIGGER_NAME = 'pi';
 const DEFAULT_WORKING_DIR = homedir();
 const DEFAULT_DATA_DIR = defaultDataDir();
@@ -15,17 +16,18 @@ const DEFAULT_DB_PATH = resolve(DEFAULT_DATA_DIR, 'gateway.db');
 const AUTH_PATH = resolve(homedir(), '.pi/agent/auth.json');
 
 export async function runSetup(args: string[]): Promise<void> {
-  const tokenArg = args[0]?.trim() ?? '';
+  const botTokenArg = args[0]?.trim() ?? '';
+  const appTokenArg = args[1]?.trim() ?? '';
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const configPath = resolveConfigPath();
 
-  if (!interactive && !tokenArg) {
+  if (!interactive && (!botTokenArg || !appTokenArg)) {
     throw new Error(
-      'DISCORD_BOT_TOKEN must be provided as an argument when stdin is not interactive.',
+      'SLACK_BOT_TOKEN and SLACK_APP_TOKEN must be provided as arguments when stdin is not interactive.',
     );
   }
 
-  clack.intro('piscord setup');
+  clack.intro('pitag setup');
 
   // ── Prerequisites ──
   const prereqs = checkPrerequisites();
@@ -46,26 +48,63 @@ export async function runSetup(args: string[]): Promise<void> {
     );
   }
 
-  // ── Token ──
-  let token = tokenArg;
-  if (!token && interactive) {
+  // ── Slack app creation ──
+  if (interactive && (!botTokenArg || !appTokenArg)) {
+    clack.note(
+      [
+        '1. Open https://api.slack.com/apps and click "Create New App"',
+        '2. Choose "From a manifest", pick your workspace, and paste the',
+        '   contents of manifest.yaml from this repository',
+        '   (Socket Mode, scopes, and the /pi command are preconfigured)',
+        '3. Click "Install to Workspace" and approve the permissions',
+        '4. OAuth & Permissions → copy the Bot User OAuth Token (xoxb-…)',
+        '5. Basic Information → App-Level Tokens → generate a token with',
+        '   the connections:write scope and copy it (xapp-…)',
+      ].join('\n'),
+      'Create your Slack app',
+    );
+  }
+
+  // ── Bot token ──
+  let botToken = botTokenArg;
+  if (!botToken && interactive) {
     const result = await clack.text({
-      message: 'Discord Bot Token',
+      message: 'Slack Bot Token (xoxb-…)',
       placeholder: 'Paste your bot token here',
       validate: (v) => {
         if (!v.trim()) return 'Token cannot be empty.';
-        if (v.trim().length < 50) return "That doesn't look like a valid bot token.";
+        if (!v.trim().startsWith('xoxb-')) return 'Bot tokens start with "xoxb-".';
       },
     });
     if (clack.isCancel(result)) {
       clack.cancel('Setup cancelled.');
       process.exit(0);
     }
-    token = result;
+    botToken = result.trim();
   }
 
-  if (!token) {
-    throw new Error('Discord Bot Token cannot be empty.');
+  // ── App-level token (Socket Mode) ──
+  let appToken = appTokenArg;
+  if (!appToken && interactive) {
+    const result = await clack.text({
+      message: 'Slack App-Level Token (xapp-…, Socket Mode)',
+      placeholder: 'Paste your app-level token here',
+      validate: (v) => {
+        if (!v.trim()) return 'Token cannot be empty.';
+        if (!v.trim().startsWith('xapp-')) return 'App-level tokens start with "xapp-".';
+      },
+    });
+    if (clack.isCancel(result)) {
+      clack.cancel('Setup cancelled.');
+      process.exit(0);
+    }
+    appToken = result.trim();
+  }
+
+  // Covers non-interactive/argument-passed tokens too (same rules as startup).
+  const tokenProblems = validateSlackTokens({ slackBotToken: botToken, slackAppToken: appToken });
+  if (tokenProblems.length > 0) {
+    throw new Error(tokenProblems.join(' '));
   }
 
   // ── Trigger name ──
@@ -88,12 +127,12 @@ export async function runSetup(args: string[]): Promise<void> {
   let channelPolicy: 'open' | 'open-trigger' | 'allowlist' = 'open';
   if (interactive) {
     const result = await clack.select({
-      message: 'Channel Policy — how should the bot handle server channels?',
+      message: 'Channel Policy — how should the bot handle workspace channels?',
       options: [
         {
           value: 'open' as const,
           label: 'open',
-          hint: 'Respond to all messages in all channels automatically',
+          hint: 'Respond to all messages in every channel the bot is a member of',
         },
         {
           value: 'open-trigger' as const,
@@ -103,7 +142,7 @@ export async function runSetup(args: string[]): Promise<void> {
         {
           value: 'allowlist' as const,
           label: 'allowlist',
-          hint: 'Only respond in manually registered channels (piscord register ...)',
+          hint: 'Only respond in manually registered channels (pitag register ...)',
         },
       ],
       initialValue: 'open' as const,
@@ -113,6 +152,51 @@ export async function runSetup(args: string[]): Promise<void> {
       process.exit(0);
     }
     channelPolicy = result;
+  }
+
+  // ── DM policy ──
+  let dmPolicy: DmPolicy = 'open';
+  if (interactive) {
+    const result = await clack.select({
+      message: 'DM Policy — how should the bot handle direct messages?',
+      options: [
+        {
+          value: 'open' as const,
+          label: 'open',
+          hint: 'Respond to all DMs, registering them automatically',
+        },
+        {
+          value: 'allowlist' as const,
+          label: 'allowlist',
+          hint: 'Only respond in manually registered DM channels (IDs start with D)',
+        },
+        {
+          value: 'disabled' as const,
+          label: 'disabled',
+          hint: 'Ignore all direct messages',
+        },
+      ],
+      initialValue: 'open' as const,
+    });
+    if (clack.isCancel(result)) {
+      clack.cancel('Setup cancelled.');
+      process.exit(0);
+    }
+    dmPolicy = result;
+  }
+
+  // ── Reply in thread ──
+  let replyInThread = true;
+  if (interactive) {
+    const result = await clack.confirm({
+      message: 'Reply in thread — when a message lives in a thread, answer inside it?',
+      initialValue: true,
+    });
+    if (clack.isCancel(result)) {
+      clack.cancel('Setup cancelled.');
+      process.exit(0);
+    }
+    replyInThread = result;
   }
 
   // ── Working directory ──
@@ -139,10 +223,13 @@ export async function runSetup(args: string[]): Promise<void> {
   writeFileSync(
     configPath,
     buildConfigFile({
-      token,
+      botToken,
+      appToken,
       triggerName,
       workingDir,
       channelPolicy,
+      dmPolicy,
+      replyInThread,
       sessionsDir: DEFAULT_SESSIONS_DIR,
       dbPath: DEFAULT_DB_PATH,
     }),
@@ -176,7 +263,7 @@ export async function runSetup(args: string[]): Promise<void> {
         s.stop('Service installation failed.');
         clack.log.error(errorMessage(err));
         clack.log.info(
-          'You can install manually later: piscord daemon install && piscord daemon start',
+          'You can install manually later: pitag daemon install && pitag daemon start',
         );
       }
     }
@@ -186,12 +273,14 @@ export async function runSetup(args: string[]): Promise<void> {
   const summaryLines = [
     `Config:    ${configPath}`,
     `Policy:    ${channelPolicy}`,
+    `DMs:       ${dmPolicy}`,
+    `Threads:   ${replyInThread ? 'reply in thread' : 'reply top-level'}`,
     `Trigger:   ${triggerName}`,
     `Sessions:  ${DEFAULT_SESSIONS_DIR}`,
   ];
   clack.note(summaryLines.join('\n'), 'Configuration');
 
-  clack.outro('Setup complete! Send a message in any Discord channel to test.');
+  clack.outro('Setup complete! Invite the bot to a Slack channel (/invite) or DM it to test.');
 }
 
 function checkPrerequisites(): {
@@ -224,18 +313,22 @@ function isUnix(): boolean {
 }
 
 export function buildConfigFile(options: {
-  token: string;
+  botToken: string;
+  appToken: string;
   triggerName: string;
   workingDir: string;
   channelPolicy?: 'open' | 'open-trigger' | 'allowlist';
+  dmPolicy?: DmPolicy;
+  replyInThread?: boolean;
   sessionsDir: string;
   dbPath: string;
 }): string {
   return [
-    '# Generated by: piscord setup',
-    '# Or edit manually. See: piscord help',
+    '# Generated by: pitag setup',
+    '# Or edit manually. See: pitag help',
     '',
-    `DISCORD_BOT_TOKEN=${options.token}`,
+    `SLACK_BOT_TOKEN=${options.botToken}`,
+    `SLACK_APP_TOKEN=${options.appToken}`,
     '',
     '# Pi agent configuration',
     'PI_BIN=pi',
@@ -250,7 +343,8 @@ export function buildConfigFile(options: {
     'MAX_SCHEDULED_CONCURRENCY=1',
     'POLL_INTERVAL_MS=1000',
     'SHUTDOWN_TIMEOUT_MS=15000',
-    'AUTO_REGISTER_DMS=true',
+    `DM_POLICY=${options.dmPolicy ?? 'open'}`,
+    `REPLY_IN_THREAD=${options.replyInThread ?? true}`,
     `CHANNEL_POLICY=${options.channelPolicy ?? 'open'}`,
     'EXCLUDED_CHANNELS=',
     'MAX_ATTACHMENT_BYTES=26214400',
