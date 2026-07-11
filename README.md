@@ -41,7 +41,7 @@ Cloud coding agents in Slack (Claude Code in Slack, Codex, Copilot coding agent)
    ```
 
 5. **Invite the bot** — `/invite @pi` in any channel, or just open a DM with it.
-6. **Talk.** In DMs every message reaches pi. In channels it depends on your policy (see below) — with the default `allowlist` policy, register the channel first; in `open-trigger` channels, mention `@pi`.
+6. **Talk.** In DMs every message reaches pi. In channels it depends on your policy (see below) — with the default `allowlist` policy, register the channel first; in trigger-gated channels, summon the bot by @mentioning it or starting your message with its trigger name (`TRIGGER_NAME`, with or without a leading `@`).
 
 ## Features
 
@@ -50,7 +50,7 @@ Cloud coding agents in Slack (Claude Code in Slack, Codex, Copilot coding agent)
 - **Per-channel sessions** — each Slack channel gets its own persistent conversation history
 - **Thread-aware replies** — when you trigger pi from inside a thread, the answer lands in that thread
 - **Per-channel working directories** — optionally override `PI_CWD` for specific channels without changing the global default
-- **Channel access policy** — `allowlist` (manual registration, the default), `open` (all channels), or `open-trigger` (all channels, @mention required)
+- **Channel access policy** — `allowlist` (manual registration, the default), `open` (all channels), or `open-trigger` (all channels, summon required: @mention or trigger-name prefix)
 - **DM policy** — `open` (DMs auto-register), `allowlist`, or `disabled`
 - **SQLite message queue** — survives crashes, auto-recovers stuck messages
 - **Concurrency control** — per-channel serial processing + configurable global limit
@@ -87,13 +87,15 @@ Every received Slack event is acknowledged immediately and written to the SQLite
 
 During setup you pick one of three policies. This controls how the bot behaves in channels it has been invited to:
 
-| Policy         | Behavior                                                           |
-| -------------- | ------------------------------------------------------------------ |
-| `allowlist`    | Only manually registered channels are active. **(default)**        |
-| `open`         | Channels auto-register on first message. No @mention needed.       |
-| `open-trigger` | Channels auto-register, but the bot only responds when @mentioned. |
+| Policy         | Behavior                                                         |
+| -------------- | ---------------------------------------------------------------- |
+| `allowlist`    | Only manually registered channels are active. **(default)**      |
+| `open`         | Channels auto-register on first message. No @mention needed.     |
+| `open-trigger` | Channels auto-register, but the bot only responds when summoned. |
 
+- "Summoned" means @mentioning the bot **or** starting the message with the trigger name — `@pi fix the build` and `pi fix the build` both work (`TRIGGER_NAME`, matched only at the start of a message). Pick a trigger word that doesn't collide with a teammate's name.
 - Slack only delivers channel messages after the bot is **invited** (`/invite @pi`), so even `open` mode is gated by the invite.
+- Summoning the bot in an **unregistered** channel (or DMing it under `DM_POLICY=allowlist`) gets a short registration hint instead of silence, rate-limited to once per 10 minutes per channel.
 - Use `EXCLUDED_CHANNELS` to block specific channel IDs from auto-registration in `open` / `open-trigger` mode.
 - Register channels by their **channel ID** (`C…` for public, `G…` for private), not by `#name`. Find the ID at the bottom of the channel's _About_ tab.
 
@@ -358,7 +360,7 @@ node dist/cli/index.js setup
 - The bot must be **invited** to a channel before Slack delivers its messages: `/invite @pi`
 - `allowlist` policy (the default): run `pitag channels` — the channel must be registered by its ID
 - `open` policy: check `EXCLUDED_CHANNELS` doesn't include your channel
-- For trigger-only channels: mention the bot (`@pi …`)
+- For trigger-only channels: mention the bot (`@pi …`) or start the message with the trigger name
 - DMs: check `DM_POLICY` isn't `disabled`
 - Verify both tokens with `pitag status` (`xoxb-…` bot token and `xapp-…` app token)
 </details>

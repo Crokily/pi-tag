@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTriggerPattern,
+  containsBotMention,
   extractFileUris,
   normalizeSlackText,
   resolveInboundContent,
@@ -104,10 +105,29 @@ describe('buildTriggerPattern', () => {
     expect(pattern.test('@pier status')).toBe(false);
   });
 
+  it('matches the bare trigger name without @', () => {
+    const pattern = buildTriggerPattern('pi');
+    expect(pattern.test('pi status')).toBe(true);
+    expect(pattern.test('PI status')).toBe(true);
+    expect(pattern.test('pier status')).toBe(false);
+    expect(pattern.test('say pi status')).toBe(false);
+  });
+
   it('escapes regex metacharacters in the trigger name', () => {
     const pattern = buildTriggerPattern('pi.bot');
     expect(pattern.test('@pi.bot status')).toBe(true);
     expect(pattern.test('@piXbot status')).toBe(false);
+  });
+});
+
+describe('containsBotMention', () => {
+  it('detects real mentions, terminated only', () => {
+    expect(containsBotMention('<@U0BOT123> hi', 'U0BOT123')).toBe(true);
+    expect(containsBotMention('<@U0BOT123|pi> hi', 'U0BOT123')).toBe(true);
+    expect(containsBotMention('<@U0BOT1234> hi', 'U0BOT123')).toBe(false);
+    expect(containsBotMention('&lt;@U0BOT123&gt; hi', 'U0BOT123')).toBe(false);
+    expect(containsBotMention('hello', 'U0BOT123')).toBe(false);
+    expect(containsBotMention('<@U0BOT123> hi', '')).toBe(false);
   });
 });
 

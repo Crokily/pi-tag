@@ -25,6 +25,7 @@ import { registerCommands } from './commands.js';
 import { uploadFilesExternal } from './files.js';
 import {
   buildTriggerPattern,
+  containsBotMention,
   resolveInboundContent,
   splitMessage,
   SLACK_MAX_MESSAGE_LENGTH,
@@ -207,7 +208,14 @@ async function handleMessage(event: InboundMessageEvent): Promise<void> {
   }
 
   if (!channel) {
-    logger.debug({ jid }, 'Message from unregistered channel, ignoring');
+    // Deliberate summons deserve feedback instead of silence: an explicit
+    // @mention in an unregistered channel (or any DM under allowlist) gets a
+    // rate-limited registration hint. Ambient chatter stays ignored.
+    if (isDM || containsBotMention(event.text ?? '', botUserId)) {
+      await sendUnregisteredNotice(jid, channelId, isDM, event.thread_ts);
+    } else {
+      logger.debug({ jid }, 'Message from unregistered channel, ignoring');
+    }
     return;
   }
 
@@ -339,6 +347,33 @@ export async function setBusy(jid: string, on: boolean, ctx?: { ts?: string }): 
   } catch (err: any) {
     logger.debug({ jid, err: err.message }, 'Busy reaction update failed');
   }
+}
+
+const UNREGISTERED_NOTICE_INTERVAL_MS = 10 * 60 * 1000;
+
+/** jid → last time a registration hint was posted (epoch ms) */
+const lastUnregisteredNoticeAt = new Map<string, number>();
+
+/** Rate-limited registration hint for deliberate summons in unregistered places. */
+async function sendUnregisteredNotice(
+  jid: string,
+  channelId: string,
+  isDM: boolean,
+  threadTs?: string,
+): Promise<void> {
+  const now = Date.now();
+  const last = lastUnregisteredNoticeAt.get(jid) ?? 0;
+  if (now - last < UNREGISTERED_NOTICE_INTERVAL_MS) return;
+  lastUnregisteredNoticeAt.set(jid, now);
+
+  const where = isDM ? 'This DM is' : 'This channel is';
+  await sendResponse(
+    jid,
+    `${where} not registered with the pi gateway, so messages here are ignored. ` +
+      `Ask the gateway admin to run:\n\`pitag register ${channelId} "<name>"\``,
+    { threadTs },
+  );
+  logger.info({ jid }, 'Sent unregistered-channel notice');
 }
 
 export function stopSlack(): void {

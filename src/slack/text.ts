@@ -155,9 +155,19 @@ export function extractFileUris(text: string): ExtractedFileUris {
   return { paths: [...new Set(paths)], text: result };
 }
 
-/** Pattern matching the `@<triggerName>` prefix at the start of a message. */
+/**
+ * Pattern matching the trigger name at the start of a message. The trigger is
+ * "calling the bot by name", so both `@Coly …` and the bare `Coly …` work
+ * (mid-sentence occurrences never trigger).
+ */
 export function buildTriggerPattern(triggerName: string): RegExp {
-  return new RegExp(`^@${escapeRegExp(triggerName)}\\b`, 'i');
+  return new RegExp(`^@?${escapeRegExp(triggerName)}\\b`, 'i');
+}
+
+/** Whether the RAW (pre-decode) event text explicitly mentions the bot. */
+export function containsBotMention(rawText: string, botUserId: string): boolean {
+  if (!botUserId) return false;
+  return new RegExp(`<@${escapeRegExp(botUserId)}(\\|[^>]*)?>`).test(rawText);
 }
 
 export function escapeRegExp(text: string): string {
