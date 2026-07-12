@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-07-12
+
+### Added
+
+- Interactive Block Kit control panel: a bare `/pi` now opens an ephemeral panel with session status at a glance, model and thinking-level dropdowns (picked straight from pi's catalog — no more typing model refs), and confirmed New session / Stop buttons. Works over Socket Mode with no manifest changes; existing apps get it on gateway upgrade.
+- `/pi help` shows the text usage (previously shown by a bare `/pi`).
+
 ## [0.1.0] - 2026-07-12
 
 Initial release. Forked from [piscord](https://github.com/Crokily/pi-discord-gateway) v1.6.1 and ported from Discord to Slack.

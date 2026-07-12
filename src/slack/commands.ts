@@ -1,13 +1,24 @@
 /**
- * /pi slash command.
+ * /pi slash command and its Block Kit control panel.
  *
  * Slack has no per-command autocomplete or typed subcommands, so a single
  * global /pi command carries text subcommands:
  *   status | model <ref> | models | reset-model | thinking <level> | new | stop
- * Replies are ephemeral (respond() posts to the command's response_url).
+ * A bare `/pi` opens an interactive panel (model/thinking pickers, new-session
+ * and stop buttons) instead of a text usage dump; `/pi help` prints the text
+ * usage. Replies are ephemeral (respond() posts to the response_url).
  */
 
-import type { App, RespondFn, SlashCommand } from '@slack/bolt';
+import type {
+  App,
+  BlockAction,
+  BlockElementAction,
+  ButtonAction,
+  RespondFn,
+  SlashCommand,
+  StaticSelectAction,
+} from '@slack/bolt';
+import { buildPanelBlocks, PANEL_ACTIONS, type PanelState } from './panel.js';
 import {
   getChannelSessionStatus,
   type ChannelSessionStatus,
@@ -40,7 +51,7 @@ import {
 } from '../agent/channel-settings.js';
 import { abortChannelTask, isChannelProcessing } from '../agent/queue.js';
 import { rotateChannelSessionDir } from '../session/path.js';
-import { THINKING_LEVELS, type RegisteredChannel } from '../types.js';
+import { THINKING_LEVELS, type RegisteredChannel, type ThinkingLevel } from '../types.js';
 
 export function registerCommands(app: App): void {
   app.command('/pi', async ({ command, ack, respond }) => {
@@ -74,6 +85,9 @@ export function registerCommands(app: App): void {
           await handleStop(command, respond);
           return;
         case '':
+          await handlePanel(command, respond);
+          return;
+        case 'help':
           await respond(usageMessage());
           return;
         default:
@@ -88,12 +102,124 @@ export function registerCommands(app: App): void {
       }
     }
   });
+  registerPanelActions(app);
   logger.info('Registered /pi slash command handler');
+}
+
+// ── Block Kit panel ──
+
+async function handlePanel(command: SlashCommand, respond: RespondFn): Promise<void> {
+  const channel = ensureManagedChannel(command);
+  if (!channel) {
+    await respond(notRegisteredMessage());
+    return;
+  }
+
+  await respondWithPanel(channel, respond);
+}
+
+async function buildPanelState(
+  channel: RegisteredChannel,
+  notice: string | undefined,
+): Promise<PanelState> {
+  const effective = computeEffectiveChannelSettings(channel);
+  const sessionStatus = await getChannelSessionStatus(channel.folder, effective.effectiveCwd);
+  const models = await listSelectableModels({ cwd: channel.cwdOverride || config.piCwd });
+
+  return {
+    channelName: channel.name,
+    model: formatModelValue(effective),
+    thinking: formatThinkingValue(effective),
+    workingDir: formatWorkingDirValue(effective),
+    session: sessionStatus.createdAt
+      ? formatSessionCreatedAt(sessionStatus.createdAt)
+      : 'not started',
+    tokens: formatTokenUsage(sessionStatus.tokens, sessionStatus.statsSource),
+    context: formatContextUsage(sessionStatus.contextUsage),
+    processing: isChannelProcessing(channel.jid),
+    models: models.map((model) => ({ ref: model.ref, label: toModelChoiceName(model) })),
+    currentModelRef: effective.rawModelRef || '',
+    currentThinking: channel.thinkingOverride,
+    notice,
+  };
+}
+
+async function respondWithPanel(
+  channel: RegisteredChannel,
+  respond: RespondFn,
+  opts: { notice?: string; replace?: boolean } = {},
+): Promise<void> {
+  const state = await buildPanelState(channel, opts.notice);
+  await respond({
+    text: `pi gateway — ${channel.name}`,
+    blocks: buildPanelBlocks(state),
+    ...(opts.replace ? { replace_original: true } : {}),
+  });
+}
+
+function registerPanelActions(app: App): void {
+  registerPanelAction<StaticSelectAction>(app, PANEL_ACTIONS.model, async (channel, action) => {
+    const notes = await applyModelSelection(channel, action.selected_option?.value ?? '');
+    return `✅ ${notes.join(' ')}`;
+  });
+
+  registerPanelAction<StaticSelectAction>(app, PANEL_ACTIONS.thinking, (channel, action) => {
+    const level = (action.selected_option?.value ?? '').toLowerCase();
+    if (!isThinkingLevel(level)) {
+      return `⚠️ Invalid thinking level: ${level || '(none)'}`;
+    }
+    return `✅ ${applyThinkingSelection(channel, level).join(' ')}`;
+  });
+
+  registerPanelAction<ButtonAction>(app, PANEL_ACTIONS.newSession, (channel) => {
+    const result = performNewSession(channel);
+    return `${result.ok ? '✅' : '⚠️'} ${result.notes.join(' ')}`;
+  });
+
+  registerPanelAction<ButtonAction>(app, PANEL_ACTIONS.stop, (channel) => {
+    return `✅ ${performStop(channel.jid)}`;
+  });
+
+  registerPanelAction<ButtonAction>(app, PANEL_ACTIONS.refresh, () => undefined);
+}
+
+/** Shared plumbing for panel block-actions: ack, resolve channel, re-render. */
+function registerPanelAction<A extends BlockElementAction>(
+  app: App,
+  actionId: string,
+  run: (channel: RegisteredChannel, action: A) => Promise<string | undefined> | string | undefined,
+): void {
+  app.action<BlockAction<A>>(actionId, async ({ ack, body, action, respond }) => {
+    await ack();
+
+    try {
+      const channelId = body.channel?.id;
+      const channel = channelId ? getChannel(`sl:${channelId}`) : undefined;
+      if (!channel) {
+        await respond({ text: notRegisteredMessage(), replace_original: true });
+        return;
+      }
+
+      const notice = await run(channel, action);
+      // Re-read: the action may have changed the channel's overrides.
+      await respondWithPanel(getChannel(channel.jid) ?? channel, respond, {
+        notice,
+        replace: true,
+      });
+    } catch (err: any) {
+      logger.error({ err: err.message, actionId }, 'Panel action failed');
+      try {
+        await respond({ text: `⚠️ ${err.message}`, replace_original: true });
+      } catch {
+        // response_url expired or unreachable; nothing else to do.
+      }
+    }
+  });
 }
 
 function usageMessage(): string {
   return [
-    'Usage: `/pi <subcommand>`',
+    'Usage: `/pi <subcommand>` — a bare `/pi` opens the interactive panel.',
     '• `status` — show the current model and thinking configuration',
     '• `model <ref>` — set the default model for this channel',
     '• `models` — list the models pi can currently use',
@@ -111,11 +237,18 @@ async function handleNew(command: SlashCommand, respond: RespondFn): Promise<voi
     return;
   }
 
+  const result = performNewSession(channel);
+  await respond(result.notes.join('\n'));
+}
+
+function performNewSession(channel: RegisteredChannel): { ok: boolean; notes: string[] } {
   if (isChannelProcessing(channel.jid)) {
-    await respond(
-      'This channel is currently processing a message. Wait for it to finish, then run `/pi new` again.',
-    );
-    return;
+    return {
+      ok: false,
+      notes: [
+        'This channel is currently processing a message. Wait for it to finish, then try again.',
+      ],
+    };
   }
 
   const cleared = clearPendingMessages(channel.jid);
@@ -134,16 +267,18 @@ async function handleNew(command: SlashCommand, respond: RespondFn): Promise<voi
     notes.push('Archived the previous session on disk.');
   }
 
-  await respond(notes.join('\n'));
+  return { ok: true, notes };
 }
 
 async function handleStop(command: SlashCommand, respond: RespondFn): Promise<void> {
-  const jid = `sl:${command.channel_id}`;
+  await respond(performStop(`sl:${command.channel_id}`));
+}
+
+function performStop(jid: string): string {
   const result = abortChannelTask(jid);
 
   if (!result.aborted && result.cleared === 0) {
-    await respond('No active task or queued messages in this channel.');
-    return;
+    return 'No active task or queued messages in this channel.';
   }
 
   const notes: string[] = [];
@@ -156,7 +291,7 @@ async function handleStop(command: SlashCommand, respond: RespondFn): Promise<vo
     );
   }
 
-  await respond(notes.join(' '));
+  return notes.join(' ');
 }
 
 async function handleStatus(command: SlashCommand, respond: RespondFn): Promise<void> {
@@ -201,14 +336,20 @@ async function handleModelSet(
     return;
   }
 
+  await respond((await applyModelSelection(channel, selectedRef)).join('\n'));
+}
+
+async function applyModelSelection(
+  channel: RegisteredChannel,
+  selectedRef: string,
+): Promise<string[]> {
   const cwd = channel.cwdOverride || config.piCwd;
   const models = await listSelectableModels({ forceRefresh: true, cwd });
   const selectedModel = resolveModelReference(selectedRef, models);
   if (!selectedModel) {
-    await respond(
+    return [
       `No available model matches: ${selectedRef}. Run \`/pi models\` to list available models.`,
-    );
-    return;
+    ];
   }
 
   setChannelModelOverride(channel.jid, selectedModel.ref);
@@ -234,7 +375,7 @@ async function handleModelSet(
     );
   }
 
-  await respond(notes.join('\n'));
+  return notes;
 }
 
 async function handleModelReset(command: SlashCommand, respond: RespondFn): Promise<void> {
@@ -285,6 +426,10 @@ async function handleThinkingSet(
     return;
   }
 
+  await respond(applyThinkingSelection(channel, level).join('\n'));
+}
+
+function applyThinkingSelection(channel: RegisteredChannel, level: ThinkingLevel): string[] {
   const effective = computeEffectiveChannelSettings(channel, { forceRefresh: true });
   const resolution = resolveThinkingForModel(effective.modelInfo, level);
 
@@ -301,7 +446,7 @@ async function handleThinkingSet(
     );
   }
 
-  await respond(notes.join('\n'));
+  return notes;
 }
 
 function ensureManagedChannel(command: SlashCommand): RegisteredChannel | undefined {

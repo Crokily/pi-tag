@@ -54,7 +54,7 @@ Cloud coding agents in Slack (Claude Code in Slack, Codex, Copilot coding agent)
 - **DM policy** — `open` (DMs auto-register), `allowlist`, or `disabled`
 - **SQLite message queue** — survives crashes, auto-recovers stuck messages
 - **Concurrency control** — per-channel serial processing + configurable global limit
-- **`/pi` slash command** — `status`, `model`, `models`, `reset-model`, `thinking`, `new`, `stop`
+- **`/pi` control panel** — a bare `/pi` opens an interactive Block Kit panel: status at a glance, model/thinking dropdowns, new-session and stop buttons; text subcommands (`status`, `model`, `models`, `reset-model`, `thinking`, `new`, `stop`) still work
 - **Abort command** — `/pi stop` terminates the running task and clears queued messages
 - **Attachment relay** — Slack file uploads are downloaded (with bot-token auth) and passed to `pi` by local path so agents can inspect or convert any supported file type without flooding context
 - **Message and file sending** — `pitag send` lets pi send plain text, files, or both to any Slack channel; pi learns this per message, and any `file://` reference left in a response is auto-uploaded as a real attachment
@@ -128,10 +128,14 @@ Note: `DM_POLICY` governs one-to-one DMs only. Group DMs (mpim) behave like chan
 
 ## Slash Commands
 
-The app manifest registers a global `/pi` command. Slack has no per-command autocomplete, so subcommands are plain text (replies are ephemeral — only you see them):
+The app manifest registers a global `/pi` command. A bare `/pi` opens an **interactive control panel** (ephemeral — only you see it): session status at a glance, model and thinking-level dropdowns you can pick from, and New session / Stop buttons with confirmation. This is the easiest way to drive the gateway — no subcommands or model refs to remember.
+
+Text subcommands still work for muscle memory and scripting (replies are ephemeral too):
 
 | Subcommand          | Description                                                        |
 | ------------------- | ------------------------------------------------------------------ |
+| `/pi`               | Open the interactive panel (status + pickers + buttons)            |
+| `/pi help`          | Show text usage                                                    |
 | `/pi status`        | Show model, thinking, working directory, session info, token usage |
 | `/pi model <ref>`   | Set the channel's model (fuzzy-matched against pi's catalog)       |
 | `/pi models`        | List the models pi can currently use                               |
