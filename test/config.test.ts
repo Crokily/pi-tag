@@ -7,9 +7,11 @@ const originalCwd = process.cwd();
 const originalEnv = { ...process.env };
 const tempDirs: string[] = [];
 const CONFIG_ENV_KEYS = [
+  'APPDATA',
   'DB_PATH',
   'DM_POLICY',
   'HOME',
+  'LOCALAPPDATA',
   'LOG_LEVEL',
   'MAX_ATTACHMENT_BYTES',
   'MAX_CONCURRENCY',
@@ -28,7 +30,21 @@ const CONFIG_ENV_KEYS = [
   'SLACK_APP_TOKEN',
   'SLACK_BOT_TOKEN',
   'TRIGGER_NAME',
+  'USERPROFILE',
 ];
+
+/**
+ * Point every home-derived location at the fake home dir. HOME alone is not
+ * enough on Windows: homedir() reads USERPROFILE, and the config's platform
+ * paths read APPDATA/LOCALAPPDATA — leaving those at their real values leaks
+ * test config files into the machine's actual profile.
+ */
+function stubHomeDir(homeDir: string): void {
+  process.env.HOME = homeDir;
+  process.env.USERPROFILE = homeDir;
+  process.env.APPDATA = resolve(homeDir, 'AppData/Roaming');
+  process.env.LOCALAPPDATA = resolve(homeDir, 'AppData/Local');
+}
 
 afterEach(() => {
   vi.resetModules();
@@ -84,7 +100,7 @@ describe('config loading', () => {
     });
 
     process.chdir(workDir);
-    process.env.HOME = homeDir;
+    stubHomeDir(homeDir);
     process.env.PITAG_CONFIG = configPath;
     process.env.PI_CWD = '/env/project';
     delete process.env.DB_PATH;
@@ -101,6 +117,8 @@ describe('config loading', () => {
   it('uses the default config file before the cwd .env fallback', async () => {
     const homeDir = createTempDir();
     const workDir = createTempDir();
+    // Stub before deriving the expected path: the helper reads APPDATA.
+    stubHomeDir(homeDir);
     const defaultConfigPath = expectedDefaultConfigPath(homeDir);
 
     writeEnvFile(resolve(workDir, '.env'), {
@@ -113,7 +131,6 @@ describe('config loading', () => {
     });
 
     process.chdir(workDir);
-    process.env.HOME = homeDir;
     delete process.env.PITAG_CONFIG;
     delete process.env.DB_PATH;
     delete process.env.SESSIONS_DIR;
@@ -130,7 +147,7 @@ describe('config loading', () => {
     const workDir = createTempDir();
 
     process.chdir(workDir);
-    process.env.HOME = homeDir;
+    stubHomeDir(homeDir);
     delete process.env.PITAG_CONFIG;
     delete process.env.DB_PATH;
     delete process.env.SESSIONS_DIR;
@@ -147,7 +164,7 @@ describe('config loading', () => {
     const workDir = createTempDir();
 
     process.chdir(workDir);
-    process.env.HOME = homeDir;
+    stubHomeDir(homeDir);
     delete process.env.PITAG_CONFIG;
     delete process.env.DM_POLICY;
     delete process.env.REPLY_IN_THREAD;
@@ -163,7 +180,7 @@ describe('config loading', () => {
     const workDir = createTempDir();
 
     process.chdir(workDir);
-    process.env.HOME = homeDir;
+    stubHomeDir(homeDir);
     delete process.env.PITAG_CONFIG;
     process.env.DM_POLICY = 'disabled';
     process.env.REPLY_IN_THREAD = 'false';
