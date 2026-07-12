@@ -1,0 +1,40 @@
+{
+  "name": "pitag",
+  "version": "0.1.0",
+  "description": "Alias of pi-tag — the Slack gateway for the pi coding agent. Prefer `npm install -g pi-tag`.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Crokily/pi-tag.git"
+  },
+  "homepage": "https://github.com/Crokily/pi-tag#readme",
+  "bugs": {
+    "url": "https://github.com/Crokily/pi-tag/issues"
+  },
+  "keywords": [
+    "slack",
+    "bot",
+    "pi",
+    "coding-agent",
+    "gateway",
+    "pi-tag"
+  ],
+  "type": "module",
+  "bin": {
+    "pitag": "bin.js",
+    "pi-tag": "bin.js"
+  },
+  "files": [
+    "bin.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "pi-tag": "^0.1.0"
+  }
+}
