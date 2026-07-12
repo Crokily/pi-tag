@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   buildTriggerPattern,
@@ -132,31 +133,35 @@ describe('containsBotMention', () => {
 });
 
 describe('extractFileUris', () => {
+  // fileURLToPath output is platform-specific (backslashes on Windows), so
+  // expectations are derived from it rather than hard-coded POSIX paths.
+  const asPath = (uri: string) => fileURLToPath(uri);
+
   it('extracts a markdown file link and keeps its label', () => {
     const { paths, text } = extractFileUris('Here: [the report](file:///home/u/report.pdf)');
-    expect(paths).toEqual(['/home/u/report.pdf']);
+    expect(paths).toEqual([asPath('file:///home/u/report.pdf')]);
     expect(text).toBe('Here: the report');
   });
 
   it('extracts a bare file URI and shows the file name', () => {
     const { paths, text } = extractFileUris('Saved to file:///home/u/report.pdf');
-    expect(paths).toEqual(['/home/u/report.pdf']);
+    expect(paths).toEqual([asPath('file:///home/u/report.pdf')]);
     expect(text).toBe('Saved to 📎 report.pdf');
   });
 
   it('extracts angle-bracketed URIs and decodes percent-encoding', () => {
     const { paths } = extractFileUris('<file:///home/u/my%20doc.txt>');
-    expect(paths).toEqual(['/home/u/my doc.txt']);
+    expect(paths).toEqual([asPath('file:///home/u/my%20doc.txt')]);
   });
 
   it('strips trailing sentence punctuation', () => {
     const { paths } = extractFileUris('I wrote file:///home/u/out.csv.');
-    expect(paths).toEqual(['/home/u/out.csv']);
+    expect(paths).toEqual([asPath('file:///home/u/out.csv')]);
   });
 
   it('deduplicates repeated references', () => {
     const { paths } = extractFileUris('file:///home/u/a.txt and again [a](file:///home/u/a.txt)');
-    expect(paths).toEqual(['/home/u/a.txt']);
+    expect(paths).toEqual([asPath('file:///home/u/a.txt')]);
   });
 
   it('leaves http links and plain text untouched', () => {

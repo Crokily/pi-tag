@@ -15,8 +15,9 @@ jobs:
       matrix:
         # The gateway ships platform-specific daemon/path code, so test the
         # full support matrix (Linux/macOS/Windows).
+        # Node floor tracks the pi SDK (@earendil-works/* requires >=22.19).
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [20, 24]
+        node-version: [22, 24]
 
     steps:
       - uses: actions/checkout@v4

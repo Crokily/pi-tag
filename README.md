@@ -24,7 +24,7 @@ Cloud coding agents in Slack (Claude Code in Slack, Codex, Copilot coding agent)
 
 ## Prerequisites
 
-- **Node.js** ≥ 20
+- **Node.js** ≥ 22.19 (same floor as the pi SDK)
 - **Linux, macOS, or Windows**
 - **[pi](https://github.com/badlogic/pi-mono)** ≥ 0.80 installed and on `PATH`, with login completed (`~/.pi/agent/auth.json`) — developed and tested against pi 0.80.6
 - **A Slack workspace** where you can create apps (free plan is fine — pi-tag uses plain messages, no paid AI features)
