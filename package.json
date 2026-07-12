@@ -22,7 +22,8 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "pitag": "dist/cli/index.js"
+    "pitag": "dist/cli/index.js",
+    "pi-tag": "dist/cli/index.js"
   },
   "files": [
     "dist",
