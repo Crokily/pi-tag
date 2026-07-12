@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-07-12
+
+### Changed
+
+- README rewritten around what you can do from Slack — user features and experience first, architecture and ops reference in the back half
+- Slack app manifest description updated to match
+
 ## [0.2.0] - 2026-07-12
 
 ### Added

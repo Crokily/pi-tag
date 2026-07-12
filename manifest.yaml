@@ -14,7 +14,7 @@
 #   3. Run `pitag setup` and paste both tokens.
 display_information:
   name: pi
-  description: Self-hosted gateway to the pi coding agent running on your own machine
+  description: Chat with the pi coding agent from Slack — sessions, files, and scheduled tasks in any channel or DM
   background_color: '#1a1d21'
 features:
   app_home:
