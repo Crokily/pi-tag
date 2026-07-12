@@ -1,0 +1,3 @@
+# Force LF in working trees on every platform so Prettier's endOfLine "lf"
+# check passes on Windows checkouts (git autocrlf would otherwise yield CRLF).
+* text=auto eol=lf
