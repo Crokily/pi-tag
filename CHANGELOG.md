@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.0] - 2026-07-11
+## [0.1.0] - 2026-07-12
 
 Initial release. Forked from [piscord](https://github.com/Crokily/pi-discord-gateway) v1.6.1 and ported from Discord to Slack.
 
@@ -19,6 +19,9 @@ Initial release. Forked from [piscord](https://github.com/Crokily/pi-discord-gat
 - Attachment relay: `url_private` downloads authenticated with the bot token, passed to pi by local path
 - Outbound files via Slack's three-step external upload (`files.getUploadURLExternal` → upload → `files.completeUploadExternal`)
 - `pitag send` — text and file relay to any Slack channel over the Web API, no running gateway required
+- File delivery from pi: each prompt teaches pi to share files via `pitag send`, and any `file://` reference left in a response is detected, validated against size limits, and uploaded as a native Slack attachment
+- Bare trigger-name summons: `Coly fix this` works the same as `@Coly fix this` (prefix-only match)
+- Rate-limited registration hint when the bot is @mentioned in an unregistered channel or DMed under `DM_POLICY=allowlist`
 - Scheduled tasks (cron or one-time) that trigger pi sessions on schedule
 - Interactive setup wizard (`pitag setup`), status diagnostics, and cross-platform daemon management (systemd/launchd) under the `pitag` service name
 - Config file at `~/.config/pitag/config.env` (platform-aware), overridable via `PITAG_CONFIG`; Slack token validation (`xoxb-` / `xapp-` prefixes) at startup

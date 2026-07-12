@@ -7,6 +7,10 @@
     "type": "git",
     "url": "git+https://github.com/Crokily/pi-tag.git"
   },
+  "homepage": "https://github.com/Crokily/pi-tag#readme",
+  "bugs": {
+    "url": "https://github.com/Crokily/pi-tag/issues"
+  },
   "keywords": [
     "slack",
     "bot",

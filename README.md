@@ -26,7 +26,7 @@ Cloud coding agents in Slack (Claude Code in Slack, Codex, Copilot coding agent)
 
 - **Node.js** ≥ 20
 - **Linux, macOS, or Windows**
-- **[pi](https://github.com/badlogic/pi-mono)** ≥ 0.74.0 installed and on `PATH`, with login completed (`~/.pi/agent/auth.json`)
+- **[pi](https://github.com/badlogic/pi-mono)** ≥ 0.80 installed and on `PATH`, with login completed (`~/.pi/agent/auth.json`) — developed and tested against pi 0.80.6
 - **A Slack workspace** where you can create apps (free plan is fine — pi-tag uses plain messages, no paid AI features)
 
 ## Quick Start
@@ -57,7 +57,7 @@ Cloud coding agents in Slack (Claude Code in Slack, Codex, Copilot coding agent)
 - **`/pi` slash command** — `status`, `model`, `models`, `reset-model`, `thinking`, `new`, `stop`
 - **Abort command** — `/pi stop` terminates the running task and clears queued messages
 - **Attachment relay** — Slack file uploads are downloaded (with bot-token auth) and passed to `pi` by local path so agents can inspect or convert any supported file type without flooding context
-- **Message and file sending** — `pitag send` lets pi send plain text, files, or both to any Slack channel
+- **Message and file sending** — `pitag send` lets pi send plain text, files, or both to any Slack channel; pi learns this per message, and any `file://` reference left in a response is auto-uploaded as a real attachment
 - **Scheduled tasks** — cron or one-time tasks that trigger pi sessions on schedule
 - **Markdown responses** — pi's standard Markdown is posted as-is (`markdown_text`), with automatic splitting at Slack's 4,000-character limit
 - **Busy indicator** — an hourglass reaction on your message while `pi` processes (Slack has no bot typing indicator)

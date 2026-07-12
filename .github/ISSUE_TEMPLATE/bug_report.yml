@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible bug in pi-discord-gateway
+description: Report a reproducible bug in pi-tag
 title: 'bug: '
 labels: [bug]
 body:
