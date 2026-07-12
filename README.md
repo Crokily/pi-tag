@@ -1,9 +1,9 @@
 <h1 align="center">pi-tag</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/pi-tag"><img src="https://img.shields.io/npm/v/pi-tag" alt="npm version"></a>
-  <img src="https://img.shields.io/npm/l/pi-tag" alt="license">
-  <img src="https://img.shields.io/node/v/pi-tag" alt="node version">
+  <a href="https://www.npmjs.com/package/pi-tag"><img src="https://img.shields.io/npm/v/pi-tag?cacheSeconds=3600" alt="npm version"></a>
+  <img src="https://img.shields.io/npm/l/pi-tag?cacheSeconds=3600" alt="license">
+  <img src="https://img.shields.io/node/v/pi-tag?cacheSeconds=3600" alt="node version">
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-blue" alt="platform">
 </p>
 
